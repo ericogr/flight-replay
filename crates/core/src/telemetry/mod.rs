@@ -19,6 +19,6 @@ pub use probe::{
     CARRY_MAX_AGE_S, DEFAULT_PROBE_COLUMNS, ProbePosition, ProbeReport, ProbeValue, probe_at,
 };
 pub use profile::{Profile, TelemetrySupport};
-pub use recording::{LoadOptions, Recording, RecordingError, Segment};
+pub use recording::{LoadOptions, Recording, RecordingError};
 pub use series::{Cursor, Series, SeriesError, Stats, at_or, fill_forward};
 pub use table::{BuildInfo, Row, Table, TableError, format_value};

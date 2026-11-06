@@ -227,9 +227,7 @@ mod tests {
             ..Settings::default()
         };
         settings.output.encoder.clear();
-        let problems = build_plan(&inputs(&settings, &[]))
-            .err()
-            .expect("no encoder");
+        let problems = build_plan(&inputs(&settings, &[])).expect_err("no encoder");
         assert!(
             problems.iter().any(|p| p.contains("encoder")),
             "{problems:?}"

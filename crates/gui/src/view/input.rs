@@ -5,10 +5,11 @@ use flight_replay_core::osd::Coverage;
 use iced::Element;
 use iced::widget::{column, row, text};
 
-use super::widgets::{action, clock, hint, page, path_text, problem, section};
+use super::widgets::{action, hint, page, path_text, problem, section};
 use crate::app::FlightReplay;
 use crate::message::Message;
 use crate::state::FileKind;
+use flight_replay_core::display::clock_tenths;
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
     page(vec![
@@ -66,7 +67,7 @@ fn video(app: &FlightReplay) -> Element<'_, Message> {
                     i.codec,
                     i.frame_rate,
                     i.nominal_frame_rate,
-                    clock(i.duration_s),
+                    clock_tenths(i.duration_s),
                     i.frame_count
                 )),
             ]
@@ -97,7 +98,11 @@ fn osd(app: &FlightReplay) -> Element<'_, Message> {
                         row![
                             text(format!("{}.", index + 1)),
                             path_text(path),
-                            hint(format!("{} to {}", clock(part.start_s), clock(part.end_s))),
+                            hint(format!(
+                                "{} to {}",
+                                clock_tenths(part.start_s),
+                                clock_tenths(part.end_s)
+                            )),
                             action(
                                 "Move up",
                                 (index > 0 && !busy).then_some(Message::MoveOsdFileUp(index))
@@ -110,7 +115,7 @@ fn osd(app: &FlightReplay) -> Element<'_, Message> {
                 }
             } else {
                 items = items.push(
-                    row![path_text(&osd.path), buttons(FileKind::Osd, true, busy)].spacing(12),
+                    row![path_text(osd.path()), buttons(FileKind::Osd, true, busy)].spacing(12),
                 );
             }
             items = items.push(action(
@@ -123,7 +128,7 @@ fn osd(app: &FlightReplay) -> Element<'_, Message> {
                 f.columns,
                 f.rows,
                 f.frames.len(),
-                clock(f.duration_s())
+                clock_tenths(f.duration_s())
             )));
             items = items.push(hint(osd.profile.explanation()));
             if osd.paths.len() > 1 {
@@ -162,7 +167,7 @@ fn srt(app: &FlightReplay) -> Element<'_, Message> {
             hint(format!(
                 "{} subtitles, {}",
                 srt.file.cues.len(),
-                clock(srt.file.duration_s())
+                clock_tenths(srt.file.duration_s())
             )),
         ]
         .spacing(6)

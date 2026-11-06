@@ -8,6 +8,8 @@ use std::path::Path;
 use iced::widget::{Column, Row, button, column, container, row, slider, text, tooltip};
 use iced::{Alignment, Element, Length, Theme};
 
+use flight_replay_core::paths::file_name;
+
 use crate::message::Message;
 
 /// A titled block of controls.
@@ -97,25 +99,14 @@ pub fn action(label: &str, message: Option<Message>) -> Element<'_, Message> {
 
 /// A path for showing: its name, with the folder in the tooltip.
 pub fn path_text<'a>(path: &Path) -> Element<'a, Message> {
-    let name = path.file_name().map_or_else(
-        || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
-    );
     tooltip(
-        text(name),
+        text(file_name(path)),
         container(text(path.display().to_string()).size(13))
             .padding(6)
             .style(container::rounded_box),
         tooltip::Position::Bottom,
     )
     .into()
-}
-
-/// The time as minutes and seconds.
-pub fn clock(seconds: f64) -> String {
-    let total = seconds.max(0.0);
-    let minutes = (total / 60.0).floor();
-    format!("{minutes:.0}:{:04.1}", total - minutes * 60.0)
 }
 
 /// A column with the usual spacing of a step.

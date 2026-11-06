@@ -7,11 +7,13 @@ use flight_replay_core::render::{Mode, Outcome};
 use iced::widget::{column, progress_bar, row, text};
 use iced::{Element, Font};
 
-use super::widgets::{action, clock, good, hint, page, problem, section};
+use super::widgets::{action, good, hint, page, problem, section};
 use crate::app::FlightReplay;
 use crate::message::Message;
 use crate::state::{QueueStatus, RenderState, Running};
 use crate::wizard::{self, Step};
+use flight_replay_core::display::clock_tenths;
+use flight_replay_core::paths::file_name;
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
     let mut items: Vec<Element<'_, Message>> = vec![section("Summary", summary(app))];
@@ -115,11 +117,7 @@ fn queue(app: &FlightReplay) -> Element<'_, Message> {
 fn summary(app: &FlightReplay) -> Element<'_, Message> {
     let mut lines = column![].spacing(4);
     if let Some(video) = &app.video {
-        let name = video
-            .path
-            .file_name()
-            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-        lines = lines.push(text(format!("Video: {name}")));
+        lines = lines.push(text(format!("Video: {}", file_name(&video.path))));
     }
     let mut added = Vec::new();
     if app.settings.draw_osd {
@@ -216,7 +214,7 @@ fn running_view(running: &Running) -> Element<'_, Message> {
         let total = elapsed.as_secs_f32() / overall;
         format!(
             "about {} left",
-            clock(f64::from((total - elapsed.as_secs_f32()).max(0.0)))
+            clock_tenths(f64::from((total - elapsed.as_secs_f32()).max(0.0)))
         )
     } else {
         "working out the time left…".to_owned()
@@ -251,7 +249,7 @@ fn running_view(running: &Running) -> Element<'_, Message> {
     }
     items = items.push(hint(format!(
         "{} elapsed, {eta}",
-        clock(elapsed.as_secs_f64())
+        clock_tenths(elapsed.as_secs_f64())
     )));
     for warning in &running.warnings {
         items = items.push(hint(format!("• {warning}")));
@@ -269,7 +267,7 @@ fn finished(outcome: &Outcome) -> Element<'_, Message> {
     items = items.push(hint(format!(
         "{} s of video in {} ({})",
         format_args!("{:.1}", outcome.window.duration_s),
-        clock(Duration::as_secs_f64(&outcome.elapsed)),
+        clock_tenths(Duration::as_secs_f64(&outcome.elapsed)),
         match outcome.mode {
             Mode::SoundOnly => "video copied",
             Mode::Overlay => "video encoded again",

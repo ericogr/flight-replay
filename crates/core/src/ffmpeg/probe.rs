@@ -45,10 +45,7 @@ pub fn probe(tools: &Tools, path: &Path) -> Result<VideoInfo, FfmpegError> {
         ])
         .arg(path)
         .output()
-        .map_err(|source| FfmpegError::Spawn {
-            tool: "ffprobe",
-            source,
-        })?;
+        .map_err(FfmpegError::spawn("ffprobe"))?;
     if !output.status.success() {
         return Err(FfmpegError::Failed {
             tool: "ffprobe",

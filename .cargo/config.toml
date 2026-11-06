@@ -1,2 +1,6 @@
 [alias]
 xtask = "run --quiet --package xtask --"
+
+[env]
+# The GUI tests draw with the software renderer: they need no GPU, and the pictures do not depend on one.
+ICED_TEST_BACKEND = "tiny-skia"

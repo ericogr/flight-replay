@@ -14,6 +14,8 @@ pub struct SrtCue {
     pub start_s: f64,
     /// End time, in seconds.
     pub end_s: f64,
+    /// The text of the cue as it is in the file (the lines after the times).
+    pub text: String,
     /// The data of the line, or `None` if the line holds no data Flight Replay can read.
     pub data: Option<SrtData>,
 }
@@ -111,10 +113,11 @@ fn parse_block(lines: &[&str]) -> Option<SrtCue> {
         start_s,
         end_s,
         data: SrtData::parse(&text),
+        text,
     })
 }
 
-/// Reads `HH:MM:SS,mmm` (a point is accepted instead of the comma).
+/// Reads a time written as `HH:MM:SS,mmm` (a point is accepted instead of the comma), in seconds.
 fn parse_time(text: &str) -> Option<f64> {
     let (clock, millis) = text.split_once([',', '.'])?;
     let mut parts = clock.split(':');

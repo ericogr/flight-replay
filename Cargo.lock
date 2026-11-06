@@ -993,6 +993,7 @@ dependencies = [
  "opener",
  "rfd",
  "rodio",
+ "serde",
  "tempfile",
  "tracing",
  "tracing-subscriber",

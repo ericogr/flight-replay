@@ -7,10 +7,11 @@ use iced::Length;
 use iced::widget::{checkbox, column, pick_list, row, text, text_input};
 
 use super::preview_view::{preview_block, sync_block};
-use super::widgets::{action, clock, good, hint, labeled, page, problem, section, slider_row};
+use super::widgets::{action, good, hint, labeled, page, problem, section, slider_row};
 use crate::app::FlightReplay;
 use crate::message::{Message, SoundEdit};
 use crate::sound_params::{self, Group};
+use flight_replay_core::display::clock_tenths;
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
     let unavailable = app.sound_unavailable();
@@ -62,16 +63,16 @@ fn coverage(app: &FlightReplay) -> Element<'_, Message> {
 }
 
 fn listen(app: &FlightReplay) -> Element<'_, Message> {
-    let can_play = app.signals().is_some() && !app.busy.audio && !app.audio_playing;
+    let can_play = app.signals().is_some() && !app.busy.audio && !app.is_playing();
     let controls = row![
         action(
             "Play 10 seconds from here",
             can_play.then_some(Message::PlayAudio)
         ),
-        action("Stop", app.audio_playing.then_some(Message::StopAudio)),
+        action("Stop", app.is_playing().then_some(Message::StopAudio)),
         text(if app.busy.audio {
             "Making the sound…"
-        } else if app.audio_playing {
+        } else if app.is_playing() {
             "Playing…"
         } else {
             ""
@@ -80,7 +81,7 @@ fn listen(app: &FlightReplay) -> Element<'_, Message> {
     .spacing(10);
 
     let mut items = column![
-        hint("Choose the moment on the slider, then listen. The picture shows the same moment."),
+        hint("Choose the moment on the slider, then listen. While the sound plays, the picture and the OSD follow it, a few times a second."),
         preview_block(app, false),
         controls,
     ]
@@ -97,7 +98,7 @@ fn listen(app: &FlightReplay) -> Element<'_, Message> {
         );
         items = items.push(hint(format!(
             "The OSD at {} says: {}. Compare it with the picture to check the timing.",
-            clock(app.preview.time_s),
+            clock_tenths(app.preview.time_s),
             report.values_text()
         )));
     }

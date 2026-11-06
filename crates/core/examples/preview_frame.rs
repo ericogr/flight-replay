@@ -49,8 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let font = sheet.scaled(size);
 
     let timeline = Timeline::new(SyncOptions::default(), info.duration_s, osd.duration_s());
-    let telemetry_time_ms = timeline.telemetry_time(at) * 1000.0;
-    let frame = &osd.frames[osd.frame_index_at(telemetry_time_ms)];
+    let frame = timeline.osd_frame(&osd, at);
     println!(
         "video {}x{} {:.3} fps, osd {} ({} frames), scale {:.6}, osd frame at {} ms",
         info.width,

@@ -16,6 +16,22 @@ use std::path::{Path, PathBuf};
 /// `.osd` and `.srt` keep the plain name.
 const VIDEO_SUFFIXES: [&str; 3] = ["_with_osd_compressed", "_with_osd", "_compressed"];
 
+/// What is added to the name of a video to make the name of the video that Flight Replay writes from it.
+pub const OUTPUT_SUFFIX: &str = "_flight-replay";
+
+/// Added after [`OUTPUT_SUFFIX`] when only a stretch of the video is rendered.
+pub const PREVIEW_SUFFIX: &str = "_preview";
+
+/// Whether a video is one that Flight Replay wrote. A folder can hold the results of an earlier run, and they are
+/// not recordings to render again.
+#[must_use]
+pub fn is_output(video: &Path) -> bool {
+    video.file_stem().is_some_and(|stem| {
+        let stem = stem.to_string_lossy();
+        stem.ends_with(OUTPUT_SUFFIX) || stem.ends_with(&format!("{OUTPUT_SUFFIX}{PREVIEW_SUFFIX}"))
+    })
+}
+
 /// The files found next to a video.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Companions {
@@ -63,7 +79,8 @@ pub fn companions(video: &Path) -> Companions {
     }
 }
 
-/// The videos of a folder (`.mp4`, any case), sorted by name, each with what was found next to it.
+/// The videos of a folder (`.mp4`, any case), sorted by name, each with what was found next to it. The videos that
+/// Flight Replay wrote are left out (see [`is_output`]).
 pub fn flights_in(dir: &Path) -> io::Result<Vec<Flight>> {
     let mut videos: Vec<PathBuf> = fs::read_dir(dir)?
         .filter_map(Result::ok)
@@ -73,6 +90,7 @@ pub fn flights_in(dir: &Path) -> io::Result<Vec<Flight>> {
                 && path
                     .extension()
                     .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"))
+                && !is_output(path)
         })
         .collect();
     videos.sort();
@@ -145,12 +163,23 @@ mod tests {
     }
 
     #[test]
+    fn the_videos_flight_replay_wrote_are_known_by_their_names() {
+        assert!(is_output(Path::new("/f/AvatarG0153_flight-replay.mp4")));
+        assert!(is_output(Path::new("a_flight-replay_preview.mp4")));
+        assert!(!is_output(Path::new("AvatarG0153.mp4")));
+        assert!(!is_output(Path::new("flight-replay-demo.mp4")));
+    }
+
+    #[test]
     fn lists_the_videos_of_a_folder_in_order() {
         let dir = tempfile::tempdir().unwrap();
         touch(dir.path(), "b.MP4");
         touch(dir.path(), "a.mp4");
         touch(dir.path(), "a.osd");
         touch(dir.path(), "notes.txt");
+        // The results of an earlier run are not recordings.
+        touch(dir.path(), "a_flight-replay.mp4");
+        touch(dir.path(), "b_flight-replay_preview.mp4");
         let flights = flights_in(dir.path()).unwrap();
         let names: Vec<_> = flights
             .iter()

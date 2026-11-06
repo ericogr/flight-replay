@@ -48,3 +48,10 @@ pub enum FfmpegError {
     #[error(transparent)]
     Io(#[from] io::Error),
 }
+
+impl FfmpegError {
+    /// For `map_err` on the start of a program: `command.spawn().map_err(FfmpegError::spawn("ffmpeg"))`.
+    pub(crate) fn spawn(tool: &'static str) -> impl FnOnce(io::Error) -> Self {
+        move |source| Self::Spawn { tool, source }
+    }
+}

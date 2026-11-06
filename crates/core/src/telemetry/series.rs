@@ -21,16 +21,6 @@ pub struct Stats {
 }
 
 impl Stats {
-    /// The share of rows that needed a forward or back fill, in percent.
-    #[must_use]
-    pub fn filled_pct(&self) -> f64 {
-        if self.total == 0 {
-            0.0
-        } else {
-            100.0 * (self.total - self.valid) as f64 / self.total as f64
-        }
-    }
-
     /// The share of rows that had a reading, in percent.
     #[must_use]
     pub fn coverage_pct(&self) -> f64 {
@@ -151,15 +141,6 @@ impl Series {
                 *value = 0.0;
             }
         }
-    }
-
-    /// The first time the series exceeds `threshold`.
-    #[must_use]
-    pub fn first_crossing(&self, threshold: f64) -> Option<f64> {
-        self.values
-            .iter()
-            .position(|&v| v > threshold)
-            .map(|i| self.times[i])
     }
 
     /// A cursor that evaluates the series at mostly increasing times, in amortised constant time.
@@ -287,7 +268,7 @@ mod tests {
         assert_eq!(s.stats.max, 8.0);
         assert!((s.stats.mean - 6.0).abs() < 1e-12);
         assert_eq!(s.stats.last_time, 3.0);
-        assert!((s.stats.filled_pct() - 50.0).abs() < 1e-12);
+        assert!((s.stats.coverage_pct() - 50.0).abs() < 1e-12);
     }
 
     #[test]
@@ -307,12 +288,5 @@ mod tests {
         s.zero_after_last_reading(2.0);
         // last reading at t = 1; held until t = 3, zero after
         assert_eq!(s.values, vec![5.0, 6.0, 6.0, 6.0, 0.0, 0.0]);
-    }
-
-    #[test]
-    fn finds_the_first_crossing() {
-        let s = series(&[0.0, 1.0, 2.0], &[0.0, 1.0, 5.0]);
-        assert_eq!(s.first_crossing(2.0), Some(2.0));
-        assert_eq!(s.first_crossing(9.0), None);
     }
 }

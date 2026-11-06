@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::discover::{OUTPUT_SUFFIX, PREVIEW_SUFFIX};
 use crate::ffmpeg::VideoInfo;
 use crate::font::FontSheet;
 use crate::osd::{OsdFile, OsdOptions};
@@ -98,9 +99,9 @@ impl OutputPlan {
             .file_stem()
             .map_or_else(|| "video".into(), |s| s.to_string_lossy().into_owned());
         let name = if preview {
-            format!("{stem}_flight-replay_preview.mp4")
+            format!("{stem}{OUTPUT_SUFFIX}{PREVIEW_SUFFIX}.mp4")
         } else {
-            format!("{stem}_flight-replay.mp4")
+            format!("{stem}{OUTPUT_SUFFIX}.mp4")
         };
         video.parent().unwrap_or_else(|| Path::new("")).join(name)
     }
@@ -131,6 +132,15 @@ pub struct RenderPlan {
     pub window: Option<Window>,
     /// The output.
     pub output: OutputPlan,
+}
+
+impl std::fmt::Debug for RenderPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RenderPlan")
+            .field("video", &self.video)
+            .field("output", &self.output.path)
+            .finish_non_exhaustive()
+    }
 }
 
 /// How a plan is carried out.

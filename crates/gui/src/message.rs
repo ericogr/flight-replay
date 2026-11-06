@@ -6,37 +6,17 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use flight_replay_core::config::ThemeChoice;
 use flight_replay_core::ffmpeg::{EncoderInfo, Tools};
 use flight_replay_core::render::{Event, Outcome};
 use flight_replay_core::telemetry::Recording;
 use iced::Point;
 
+use crate::preferences::ThemeChoice;
 use crate::sound_params::Param;
-use crate::state::{FileKind, FolderPlans, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo};
+use crate::state::{
+    FileKind, FolderQueue, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, ScaleChoice,
+};
 use crate::wizard::Step;
-
-/// How the scale between the video and the OSD is chosen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScaleChoice {
-    Auto,
-    Off,
-    Manual,
-}
-
-impl ScaleChoice {
-    pub const ALL: [ScaleChoice; 3] = [Self::Auto, Self::Off, Self::Manual];
-}
-
-impl std::fmt::Display for ScaleChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Auto => "Automatic (from the durations)",
-            Self::Off => "None (same speed)",
-            Self::Manual => "Manual",
-        })
-    }
-}
 
 /// An edit of the OSD placement.
 #[derive(Debug, Clone, Copy)]
@@ -50,7 +30,7 @@ pub enum OsdEdit {
 }
 
 /// An edit of the SRT fields.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum SrtEdit {
     Time(bool),
     SkyBattery(bool),
@@ -168,7 +148,7 @@ pub enum Message {
     QueueAdd,
     QueueAddFolder,
     QueueFolderChosen(Option<PathBuf>),
-    QueueFolderPlanned(Result<Arc<FolderPlans>, String>),
+    QueueFolderPlanned(Result<Arc<FolderQueue>, String>),
     QueueRemove(usize),
     QueueClearFinished,
     QueueStart,

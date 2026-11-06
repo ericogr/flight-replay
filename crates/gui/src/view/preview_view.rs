@@ -8,9 +8,11 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length};
 
-use super::widgets::{clock, hint, labeled, problem, section};
+use super::widgets::{hint, labeled, problem, section};
 use crate::app::FlightReplay;
-use crate::message::{Message, ScaleChoice, SyncEdit};
+use crate::message::{Message, SyncEdit};
+use crate::state::ScaleChoice;
+use flight_replay_core::display::clock_tenths;
 
 /// The preview picture and the slider that chooses its time.
 pub fn preview_block(app: &FlightReplay, masks: bool) -> Element<'_, Message> {
@@ -19,11 +21,15 @@ pub fn preview_block(app: &FlightReplay, masks: bool) -> Element<'_, Message> {
     };
     let duration = video.info.duration_s.max(0.1);
     let time = row![
-        text(clock(app.preview.time_s)).width(Length::Fixed(60.0)),
-        slider(0.0..=duration, app.preview.time_s, Message::PreviewTime)
-            .step(0.05)
-            .on_release(Message::PreviewTimeReleased),
-        text(clock(duration)).width(Length::Fixed(60.0)),
+        text(clock_tenths(app.preview.time_s)).width(Length::Fixed(60.0)),
+        slider(
+            0.0..=video.last_frame_s().max(0.1),
+            app.preview.time_s,
+            Message::PreviewTime
+        )
+        .step(0.05)
+        .on_release(Message::PreviewTimeReleased),
+        text(clock_tenths(duration)).width(Length::Fixed(60.0)),
     ]
     .spacing(10)
     .align_y(Alignment::Center);
@@ -49,7 +55,9 @@ pub fn preview_block(app: &FlightReplay, masks: bool) -> Element<'_, Message> {
     };
 
     let mut items = column![container(picture).center_x(Length::Fill), time].spacing(8);
-    if app.preview.busy && app.preview.handle.is_some() {
+    // While the sound plays the picture is made again and again, and a note that comes and goes would shift the
+    // controls below it.
+    if app.preview.busy && app.preview.handle.is_some() && !app.is_playing() {
         items = items.push(hint("Updating…"));
     }
     if let Some(error) = &app.preview.error {
@@ -62,22 +70,22 @@ pub fn preview_block(app: &FlightReplay, masks: bool) -> Element<'_, Message> {
 pub fn sync_block(app: &FlightReplay) -> Element<'_, Message> {
     let mut items = column![labeled(
         "Speed of the OSD",
-        pick_list(ScaleChoice::ALL, Some(app.scale_choice), |c| Message::Sync(
+        pick_list(ScaleChoice::ALL, Some(app.sync.choice), |c| Message::Sync(
             SyncEdit::Scale(c)
         )),
     ),]
     .spacing(8);
-    if app.scale_choice == ScaleChoice::Manual {
+    if app.sync.choice == ScaleChoice::Manual {
         items = items.push(labeled(
             "Scale",
-            text_input("1.000", &app.manual_scale)
+            text_input("1.000", &app.sync.manual_scale)
                 .on_input(|t| Message::Sync(SyncEdit::ManualScale(t)))
                 .width(Length::Fixed(120.0)),
         ));
     }
     items = items.push(labeled(
         "Delay of the OSD (seconds)",
-        text_input("0", &app.offset)
+        text_input("0", &app.sync.offset)
             .on_input(|t| Message::Sync(SyncEdit::Offset(t)))
             .width(Length::Fixed(120.0)),
     ));

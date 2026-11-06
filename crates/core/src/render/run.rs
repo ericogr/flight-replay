@@ -24,6 +24,7 @@ use crate::ffmpeg::{
 use crate::font::{CharacterSize, ScaledFont};
 use crate::osd::OsdFile;
 use crate::overlay::{chroma_background, draw_osd, draw_srt};
+use crate::paths::{file_name, folder_or_current, parent_folder};
 use crate::synth::{
     Engine, EngineError, RenderStats, SignalError, SignalSet, SoundSettings, frames_for,
 };
@@ -172,39 +173,28 @@ pub fn render(
     if mode == Mode::Overlay && plan.sound.is_none() && plan.info.audio_streams > 0 {
         reporter.warn("the sound of the input video is not kept in the output");
     }
-    if let Some(parent) = plan
-        .output
-        .path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-    {
+    if let Some(parent) = parent_folder(&plan.output.path) {
         fs::create_dir_all(parent)?;
     }
 
     let (output, audio_stats) = match mode {
         Mode::SoundOnly => {
-            let (settings, signals) = sound
+            let sound = sound
                 .as_ref()
                 .expect("a plan without drawing has sound: validate checked");
             let timeline = timeline.expect("the sound has an OSD file");
-            let stats = sound_only(
-                tools,
-                plan,
-                window,
-                timeline,
-                settings,
-                signals,
-                cancel,
-                &mut reporter,
-            )?;
+            let stats = sound_only(tools, plan, window, timeline, sound, cancel, &mut reporter)?;
             (plan.output.path.clone(), Some(stats))
         }
-        Mode::Overlay => {
-            let sound = sound
-                .as_ref()
-                .map(|(settings, signals)| (*settings, signals));
-            overlay(tools, plan, window, timeline, sound, cancel, &mut reporter)?
-        }
+        Mode::Overlay => overlay(
+            tools,
+            plan,
+            window,
+            timeline,
+            sound.as_ref(),
+            cancel,
+            &mut reporter,
+        )?,
     };
 
     reporter.stage(Stage::Checking);
@@ -246,11 +236,29 @@ fn check_sync(plan: &RenderPlan, osd: &OsdFile, reporter: &mut Reporter<'_>) -> 
     timeline
 }
 
+/// The sound of a plan: how it is made, and the signals it follows.
+struct Sound<'a> {
+    settings: &'a SoundSettings,
+    signals: SignalSet,
+}
+
+impl Sound<'_> {
+    /// How many audio frames (one sample for each channel) the window takes.
+    fn frames(&self, window: ResolvedWindow) -> u64 {
+        frames_for(window.duration_s, self.settings.audio.sample_rate) as u64
+    }
+
+    /// How many bytes of 16-bit samples the window takes.
+    fn bytes(&self, window: ResolvedWindow) -> u64 {
+        self.frames(window) * u64::from(self.settings.audio.channels) * 2
+    }
+}
+
 /// Reads the telemetry for the sound, if the plan has sound, and warns about what is missing.
 fn prepare_sound<'a>(
     plan: &'a RenderPlan,
     reporter: &mut Reporter<'_>,
-) -> Result<Option<(&'a SoundSettings, SignalSet)>, RenderError> {
+) -> Result<Option<Sound<'a>>, RenderError> {
     let (Some(settings), Some(osd)) = (&plan.sound, &plan.osd) else {
         return Ok(None);
     };
@@ -258,54 +266,70 @@ fn prepare_sound<'a>(
     let name = plan
         .osd_path
         .as_deref()
-        .and_then(Path::file_name)
-        .map_or_else(
-            || "the .osd".to_owned(),
-            |n| n.to_string_lossy().into_owned(),
-        );
+        .map_or_else(|| "the .osd".to_owned(), file_name);
     let signals = SignalSet::collect(&recording.table, settings, &name, recording.frames)?;
     for warning in &signals.warnings {
         reporter.warn(warning.clone());
     }
-    Ok(Some((settings, signals)))
+    Ok(Some(Sound { settings, signals }))
+}
+
+/// Makes the sound of the window, a block at a time, and hands each block to `write` as 16-bit samples. Stops with
+/// [`RenderError::Cancelled`] when asked.
+fn make_sound(
+    sound: &Sound<'_>,
+    timeline: Timeline,
+    window: ResolvedWindow,
+    cancel: &CancelToken,
+    reporter: &mut Reporter<'_>,
+    mut write: impl FnMut(&[u8]) -> Result<(), RenderError>,
+) -> Result<RenderStats, RenderError> {
+    let mut engine = Engine::new(
+        sound.settings.clone(),
+        sound.signals.controls(),
+        timeline,
+        window.start_s,
+    )?;
+    let total = sound.frames(window);
+    reporter.stage(Stage::Audio);
+    let mut done = 0;
+    while done < total {
+        if cancel.is_cancelled() {
+            return Err(RenderError::Cancelled);
+        }
+        let block = BLOCK_FRAMES.min(total - done);
+        write(&pcm16le(&engine.render_s16(block as usize)))?;
+        done += block;
+        reporter.progress(Stage::Audio, done, total);
+    }
+    Ok(engine.stats())
 }
 
 /// The video stream is copied and the sound is written to FFmpeg as it is made.
-#[allow(clippy::too_many_arguments)]
 fn sound_only(
     tools: &Tools,
     plan: &RenderPlan,
     window: ResolvedWindow,
     timeline: Timeline,
-    settings: &SoundSettings,
-    signals: &SignalSet,
+    sound: &Sound<'_>,
     cancel: &CancelToken,
     reporter: &mut Reporter<'_>,
 ) -> Result<RenderStats, RenderError> {
-    let mut engine = Engine::new(
-        settings.clone(),
-        signals.controls(),
-        timeline,
-        window.start_s,
-    )?;
-    let total = frames_for(window.duration_s, settings.audio.sample_rate) as u64;
-    let job = sound_only_job(plan, window, settings);
+    let job = sound_only_job(plan, window, sound.settings);
     let mut process = EncodeProcess::spawn(tools, &job)?;
-    reporter.stage(Stage::Audio);
-    let mut done = 0;
-    while done < total {
-        if cancel.is_cancelled() {
+    let made = make_sound(sound, timeline, window, cancel, reporter, |pcm| {
+        process.write(pcm).map_err(RenderError::from)
+    });
+    let stats = match made {
+        Ok(stats) => stats,
+        Err(error) => {
             process.abort();
-            return Err(RenderError::Cancelled);
+            return Err(error);
         }
-        let block = BLOCK_FRAMES.min(total - done);
-        process.write(&pcm16le(&engine.render_s16(block as usize)))?;
-        done += block;
-        reporter.progress(Stage::Audio, done, total);
-    }
+    };
     reporter.stage(Stage::Finishing);
     process.finish()?;
-    Ok(engine.stats())
+    Ok(stats)
 }
 
 /// The FFmpeg job of a render that only adds sound: the video is copied and the sound comes on standard input.
@@ -430,10 +454,9 @@ impl<'a> Layers<'a> {
             &self.plan.osd,
             self.timeline,
         ) {
-            let telemetry_ms = timeline.telemetry_time(time_s) * 1000.0;
             draw_osd(
                 canvas,
-                &osd.frames[osd.frame_index_at(telemetry_ms)],
+                timeline.osd_frame(osd, time_s),
                 font,
                 &layer.options,
             );
@@ -452,7 +475,7 @@ fn overlay(
     plan: &RenderPlan,
     window: ResolvedWindow,
     timeline: Option<Timeline>,
-    sound: Option<(&SoundSettings, &SignalSet)>,
+    sound: Option<&Sound<'_>>,
     cancel: &CancelToken,
     reporter: &mut Reporter<'_>,
 ) -> Result<(PathBuf, Option<RenderStats>), RenderError> {
@@ -463,21 +486,12 @@ fn overlay(
     // The sound first, into a file next to the output. The guard removes it on every way out.
     let mut audio_stats = None;
     let (audio, _wav_guard) = match sound {
-        Some((settings, signals)) => {
+        Some(sound) => {
             let path = temp_wav_path(&plan.output.path);
-            let wav_bytes = frames_for(window.duration_s, settings.audio.sample_rate) as u64
-                * u64::from(settings.audio.channels)
-                * 2;
-            let dir = path
-                .parent()
-                .filter(|p| !p.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."));
-            check_free_space(dir, wav_bytes)?;
+            check_free_space(folder_or_current(&path), sound.bytes(window))?;
             let guard = TempFile(path.clone());
             let timeline = timeline.expect("the sound has an OSD file");
-            audio_stats = Some(write_wav(
-                &path, settings, signals, timeline, window, cancel, reporter,
-            )?);
+            audio_stats = Some(write_wav(&path, sound, timeline, window, cancel, reporter)?);
             (AudioInput::WavFile { path }, Some(guard))
         }
         None => (AudioInput::None, None),
@@ -569,41 +583,25 @@ fn temp_wav_path(output: &Path) -> PathBuf {
 /// Makes the sound of the window and writes it as a WAV file.
 fn write_wav(
     path: &Path,
-    settings: &SoundSettings,
-    signals: &SignalSet,
+    sound: &Sound<'_>,
     timeline: Timeline,
     window: ResolvedWindow,
     cancel: &CancelToken,
     reporter: &mut Reporter<'_>,
 ) -> Result<RenderStats, RenderError> {
-    let mut engine = Engine::new(
-        settings.clone(),
-        signals.controls(),
-        timeline,
-        window.start_s,
-    )?;
-    let total = frames_for(window.duration_s, settings.audio.sample_rate) as u64;
-    let channels = u64::from(settings.audio.channels);
+    let audio = &sound.settings.audio;
     let mut file = BufWriter::new(File::create(path)?);
     write_wav_header(
         &mut file,
-        settings.audio.sample_rate,
-        settings.audio.channels,
-        total * channels * 2,
+        audio.sample_rate,
+        audio.channels,
+        sound.bytes(window),
     )?;
-    reporter.stage(Stage::Audio);
-    let mut done = 0;
-    while done < total {
-        if cancel.is_cancelled() {
-            return Err(RenderError::Cancelled);
-        }
-        let block = BLOCK_FRAMES.min(total - done);
-        file.write_all(&pcm16le(&engine.render_s16(block as usize)))?;
-        done += block;
-        reporter.progress(Stage::Audio, done, total);
-    }
+    let stats = make_sound(sound, timeline, window, cancel, reporter, |pcm| {
+        file.write_all(pcm).map_err(RenderError::from)
+    })?;
     file.flush()?;
-    Ok(engine.stats())
+    Ok(stats)
 }
 
 /// Opens the output to see what it holds, and compares the sound and the picture.

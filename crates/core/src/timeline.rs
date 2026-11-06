@@ -14,6 +14,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::osd::{Frame, OsdFile};
+
 /// How the scale between video and telemetry time is chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ScaleMode {
@@ -87,6 +89,13 @@ impl Timeline {
     #[must_use]
     pub fn telemetry_time(&self, video_time_s: f64) -> f64 {
         (video_time_s - self.offset_s) / self.scale
+    }
+
+    /// The OSD screen that is current at `video_time_s`.
+    #[must_use]
+    pub fn osd_frame<'a>(&self, osd: &'a OsdFile, video_time_s: f64) -> &'a Frame {
+        let telemetry_ms = self.telemetry_time(video_time_s) * 1000.0;
+        &osd.frames[osd.frame_index_at(telemetry_ms)]
     }
 
     /// Video time at which the telemetry shows `telemetry_time_s`. The inverse of [`Timeline::telemetry_time`].
@@ -244,6 +253,39 @@ mod tests {
         assert!((timeline.telemetry_time(2.5)).abs() < 1e-12);
         assert!((timeline.telemetry_time(12.5) - 10.0).abs() < 1e-12);
         assert!((timeline.video_time(10.0) - 12.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn the_osd_screen_is_the_one_current_at_the_video_time() {
+        use crate::osd::Firmware;
+        let screen = |time_ms| Frame {
+            time_ms,
+            columns: 1,
+            cells: vec![0],
+        };
+        let osd = OsdFile {
+            firmware: Firmware::Inav,
+            columns: 1,
+            rows: 1,
+            frames: vec![screen(0), screen(100), screen(200)],
+            trailing_bytes: 0,
+        };
+        let options = SyncOptions {
+            scale: ScaleMode::Off,
+            offset_s: 0.5,
+        };
+        let timeline = Timeline::new(options, 10.0, 0.3);
+        assert_eq!(
+            timeline.osd_frame(&osd, 0.0).time_ms,
+            0,
+            "before the telemetry starts"
+        );
+        assert_eq!(timeline.osd_frame(&osd, 0.65).time_ms, 100);
+        assert_eq!(
+            timeline.osd_frame(&osd, 99.0).time_ms,
+            200,
+            "after the last screen"
+        );
     }
 
     #[test]

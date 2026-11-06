@@ -18,6 +18,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail, ensure};
 use flight_replay_core::ffmpeg::{Tools, probe};
 use flight_replay_core::osd::{Frame, HEADER_BYTES, OsdFile};
+use flight_replay_core::srt::SrtFile;
 use flight_replay_core::telemetry::catalog::{KEY_GPS_LAT, KEY_GPS_LON};
 use flight_replay_core::telemetry::decoder::{Decoder, Options, Sample, Value};
 use flight_replay_core::telemetry::inav;
@@ -374,42 +375,21 @@ fn encode_osd(header: &[u8], frames: &[Frame]) -> Vec<u8> {
 fn slice_srt(text: &str, start: f64, end: f64) -> (String, usize) {
     let mut out = String::new();
     let mut count = 0;
-    let mut block: Vec<&str> = Vec::new();
-    for line in text.lines().map(str::trim_end).chain(std::iter::once("")) {
-        if !line.trim().is_empty() {
-            block.push(line);
-            continue;
-        }
-        if let Some(arrow) = block.iter().position(|l| l.contains("-->")) {
-            let times = block[arrow]
-                .split_once("-->")
-                .and_then(|(a, b)| Some((parse_time(a.trim())?, parse_time(b.trim())?)));
-            if let Some((cue_start, cue_end)) = times
-                && cue_start < end
-                && cue_end > start
-            {
-                count += 1;
-                let _ = write!(
-                    out,
-                    "{count}\n{} --> {}\n{}\n\n",
-                    format_time((cue_start - start).max(0.0)),
-                    format_time(cue_end - start),
-                    block[arrow + 1..].join("\n")
-                );
-            }
-        }
-        block.clear();
+    for cue in SrtFile::parse(text)
+        .cues
+        .iter()
+        .filter(|cue| cue.start_s < end && cue.end_s > start)
+    {
+        count += 1;
+        let _ = write!(
+            out,
+            "{count}\n{} --> {}\n{}\n\n",
+            format_time((cue.start_s - start).max(0.0)),
+            format_time(cue.end_s - start),
+            cue.text
+        );
     }
     (out, count)
-}
-
-fn parse_time(text: &str) -> Option<f64> {
-    let (clock, millis) = text.split_once([',', '.'])?;
-    let mut parts = clock.split(':');
-    let hours: f64 = parts.next()?.parse().ok()?;
-    let minutes: f64 = parts.next()?.parse().ok()?;
-    let seconds: f64 = parts.next()?.parse().ok()?;
-    Some(hours * 3600.0 + minutes * 60.0 + seconds + millis.parse::<f64>().ok()? / 1000.0)
 }
 
 fn format_time(seconds: f64) -> String {

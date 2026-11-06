@@ -17,6 +17,7 @@ use super::process::{collect_stderr, read_progress};
 use super::progress::{Progress, parse_progress_line};
 use super::tools::command;
 use super::{FfmpegError, Tools};
+use crate::paths::parent_folder;
 
 /// Where the picture comes from.
 #[derive(Debug, Clone, PartialEq)]
@@ -253,7 +254,7 @@ impl EncodeProcess {
     pub fn spawn(tools: &Tools, job: &EncodeJob) -> Result<Self, FfmpegError> {
         job.validate()?;
         let partial = job.partial_path();
-        if let Some(parent) = job.output.parent().filter(|p| !p.as_os_str().is_empty()) {
+        if let Some(parent) = parent_folder(&job.output) {
             fs::create_dir_all(parent)?;
         }
 
@@ -267,10 +268,7 @@ impl EncodeProcess {
             })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(|source| FfmpegError::Spawn {
-            tool: "ffmpeg",
-            source,
-        })?;
+        let mut child = command.spawn().map_err(FfmpegError::spawn("ffmpeg"))?;
 
         let stdin = child.stdin.take();
         let stderr = child.stderr.take().map(collect_stderr);

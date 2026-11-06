@@ -6,17 +6,14 @@
 //! The generic pass takes the readings no rule recognized: a number anchored by glyphs. Each becomes a column
 //! named after those glyphs, with the value as shown on screen.
 
-use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::rule::{NUM_RE, erase, parse_num};
-use std::borrow::Cow;
+use super::rule::{NUM_RE, erase, parse_num, whole_match};
 
 use super::Sample;
-use crate::telemetry::catalog::Field;
 use crate::telemetry::inav;
 
 /// Starts the key of every column made by the generic pass.
@@ -25,31 +22,6 @@ pub const EXTRA_PREFIX: &str = "osd_raw_";
 /// Joins the names of the glyphs in a column name. A glyph name has single underscores inside it and none at its
 /// ends, so a double one cannot be mistaken for part of a name.
 const GLYPH_SEPARATOR: &str = "__";
-
-/// Whether a column was made by the generic pass.
-#[must_use]
-pub fn is_extra_key(key: &str) -> bool {
-    key.starts_with(EXTRA_PREFIX)
-}
-
-/// The columns the generic pass made in the samples, sorted by key. The value is exactly what the OSD shows: no
-/// unit conversion and no rounding.
-#[must_use]
-pub fn extra_fields(samples: &[Sample]) -> Vec<Field> {
-    let keys: BTreeSet<&str> = samples
-        .iter()
-        .flat_map(Sample::keys)
-        .filter(|key| is_extra_key(key))
-        .collect();
-    keys.into_iter()
-        .map(|key| Field {
-            key: Cow::Owned(key.to_owned()),
-            desc: "a reading no rule knows, as shown on screen (no unit conversion); the glyphs around the number make up the name",
-            decimals: -1,
-            text: false,
-        })
-        .collect()
-}
 
 /// The character class of the glyph cells.
 fn glyph_class() -> String {
@@ -95,10 +67,7 @@ pub(super) fn read_generic(line: &str, sample: &mut Sample) -> String {
             continue;
         }
         sample.num(&key, value);
-        let whole = captures
-            .get(0)
-            .expect("group 0 always takes part in a match");
-        spans.push((whole.start(), whole.end()));
+        spans.push(whole_match(&captures));
     }
     erase(line, &spans)
 }

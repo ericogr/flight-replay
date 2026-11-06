@@ -8,11 +8,13 @@
 
 mod builder;
 mod events;
+mod folder;
 mod plan;
 mod run;
 
 pub use builder::{PlanInputs, build_plan, encoder_choice};
 pub use events::{CancelToken, Event, Stage};
+pub use folder::{FlightDefaults, FlightError, FolderPlans, Skipped, plan_flight, plan_folder};
 pub use plan::{
     EncoderChoice, Mode, OsdLayer, OutputPlan, Overwrite, RenderPlan, ResolvedWindow, SrtLayer,
     VideoOutput, Window,

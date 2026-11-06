@@ -21,7 +21,7 @@ mod units;
 use std::collections::HashMap;
 use std::fmt;
 
-pub use generic::{EXTRA_PREFIX, extra_fields, is_extra_key};
+pub use generic::EXTRA_PREFIX;
 pub use layout::{detect_flight_modes, detect_message_row};
 pub use leftover::Leftover;
 

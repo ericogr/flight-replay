@@ -11,7 +11,6 @@
 
 use std::path::{Path, PathBuf};
 
-use flight_replay_core::config::ThemeChoice;
 use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools, probe};
 use flight_replay_core::osd::Coverage;
 use iced::Task;
@@ -22,6 +21,7 @@ use tempfile::TempDir;
 
 use crate::app::{FlightReplay, ToolsState};
 use crate::message::{Message, OutputEdit};
+use crate::preferences::ThemeChoice;
 use crate::state::{FileKind, QueueStatus, RenderState};
 use crate::tasks;
 use crate::view;
@@ -190,7 +190,7 @@ fn the_colour_scheme_is_saved_with_the_settings() {
         return;
     };
     app.click("Light");
-    assert_eq!(app.app.settings.theme, ThemeChoice::Light);
+    assert_eq!(app.app.preferences.theme, ThemeChoice::Light);
     app.snapshot("welcome-light");
 
     let saved = std::fs::read_to_string(app.path("settings.toml")).expect("the settings are saved");
@@ -456,7 +456,7 @@ fn a_queue_renders_the_videos_of_a_folder_one_after_the_other() {
     assert!(
         left_out
             .iter()
-            .any(|n| n.contains("a.mp4") && n.contains("queue"))
+            .any(|n| n.contains("a.mp4") && n.contains("already planned"))
     );
     assert!(
         left_out

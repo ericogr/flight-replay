@@ -76,21 +76,24 @@ fn two_files_make_one_timeline() {
 }
 
 #[test]
-fn the_sound_and_the_overlay_agree_about_where_the_second_file_starts() {
-    let osd = common::fixture("clip-3s.osd");
-    let paths = vec![osd.clone(), osd];
-    let from_files = Recording::load_joined(&paths, LoadOptions::default(), 0.0).unwrap();
+fn the_telemetry_of_a_joined_recording_is_one_timeline() {
     let joined = join(twice(), 0.0).unwrap();
-    let from_join = Recording::decode(&joined.file, LoadOptions::default()).unwrap();
+    let recording = Recording::decode(&joined.file, LoadOptions::default()).unwrap();
 
-    assert_eq!(from_files.frames, from_join.frames);
-    let a = &from_files.segments;
-    assert_eq!(a.len(), 2);
+    assert_eq!(recording.frames, joined.file.frames.len());
+    assert!(
+        recording.table.times.windows(2).all(|w| w[0] <= w[1]),
+        "the times never go back"
+    );
+    // The first screen of the second file is a row of the table, where the overlay draws it.
     let second = joined.parts[1].start_s;
     assert!(
-        (a[1].start - second).abs() < 0.002,
-        "the telemetry starts the second file at {} s and the overlay at {second} s",
-        a[1].start
+        recording
+            .table
+            .times
+            .iter()
+            .any(|&time| (time - second).abs() < 0.002),
+        "no row at {second} s, where the second file starts"
     );
 }
 

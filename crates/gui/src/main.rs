@@ -12,6 +12,7 @@
 mod app;
 mod audio;
 mod message;
+mod preferences;
 mod preview;
 mod sound_params;
 mod state;

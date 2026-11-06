@@ -100,10 +100,7 @@ impl FrameReader {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = command.spawn().map_err(|source| FfmpegError::Spawn {
-            tool: "ffmpeg",
-            source,
-        })?;
+        let mut child = command.spawn().map_err(FfmpegError::spawn("ffmpeg"))?;
         let stdout = child.stdout.take().expect("stdout is piped");
         let stderr = child.stderr.take().map(collect_stderr);
         Ok(Self {

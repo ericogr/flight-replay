@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 EricoGR
 
-use flight_replay_core::config::ThemeChoice;
 use iced::Element;
 use iced::widget::{button, column, row, text};
 
 use super::widgets::{action, good, hint, page, problem, section};
 use crate::app::{FlightReplay, ToolsState};
 use crate::message::Message;
+use crate::preferences::ThemeChoice;
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
     let intro = column![
@@ -73,7 +73,7 @@ fn encoders(app: &FlightReplay) -> Element<'_, Message> {
 
 fn theme_buttons(app: &FlightReplay) -> Element<'_, Message> {
     let choice = |label: &'static str, value: ThemeChoice| {
-        let selected = app.settings.theme == value;
+        let selected = app.preferences.theme == value;
         button(text(label))
             .on_press(Message::Theme(value))
             .style(if selected {

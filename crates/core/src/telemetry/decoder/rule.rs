@@ -51,13 +51,18 @@ impl Rule {
             for (key, value) in got {
                 sample.insert(key, value);
             }
-            let whole = captures
-                .get(0)
-                .expect("group 0 always takes part in a match");
-            spans.push((whole.start(), whole.end()));
+            spans.push(whole_match(&captures));
         }
         erase(line, &spans)
     }
+}
+
+/// The byte offsets of the whole text a regex matched.
+pub(crate) fn whole_match(captures: &regex::Captures<'_>) -> (usize, usize) {
+    let whole = captures
+        .get(0)
+        .expect("group 0 always takes part in a match");
+    (whole.start(), whole.end())
 }
 
 /// Replaces the spans (byte offsets, in order) of `line` with one blank per glyph.

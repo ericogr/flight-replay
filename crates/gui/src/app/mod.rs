@@ -1,0 +1,524 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 EricoGR
+
+//! The application: its state, and how it reacts to each message.
+//!
+//! [`FlightReplay::update`] is one flat table from message to handler, so the compiler checks that every message is
+//! handled. The handlers are in the modules of this folder, one for each part of the work:
+//!
+//! - `files`: opening, replacing and clearing the video and the files that go with it
+//! - `options`: what to draw, how to encode, and the other choices of the steps
+//! - `picture`: the preview picture
+//! - `listen`: the sound preview
+//! - `rendering`: the plan of the render, and running it
+//! - `queue`: several videos, one after the other
+
+mod files;
+mod listen;
+mod options;
+mod picture;
+mod queue;
+mod rendering;
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use flight_replay_core::config::{self, Settings};
+use flight_replay_core::ffmpeg::{EncoderInfo, Tools};
+use flight_replay_core::font::{CharacterSize, ScaledFont};
+use flight_replay_core::synth::SignalSet;
+use flight_replay_core::telemetry::TelemetrySupport;
+use flight_replay_core::timeline::Timeline;
+use iced::{Subscription, Task, Theme};
+
+use crate::audio::AudioPlayer;
+use crate::message::Message;
+use crate::preferences::{self, Preferences, ThemeChoice};
+use crate::state::{
+    FileKind, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, Preview, Queue, RenderState,
+    StretchInput, SyncInput, Telemetry,
+};
+use crate::tasks;
+use crate::wizard::{self, Context, Step};
+
+/// The state of the search for FFmpeg.
+pub enum ToolsState {
+    Searching,
+    Found(Arc<Tools>),
+    Missing(String),
+}
+
+/// What is being loaded right now.
+#[derive(Default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "one flag per file that can be loading at the same time"
+)]
+pub struct Busy {
+    pub video: bool,
+    pub osd: bool,
+    pub srt: bool,
+    pub font: bool,
+    pub telemetry: bool,
+    pub audio: bool,
+}
+
+/// The application.
+pub struct FlightReplay {
+    /// What a render needs.
+    pub settings: Settings,
+    /// What the window remembers.
+    pub preferences: Preferences,
+    system_mode: iced::theme::Mode,
+    settings_path: Option<PathBuf>,
+    pub notices: Vec<String>,
+
+    pub tools: ToolsState,
+    pub encoders: Option<Arc<Vec<EncoderInfo>>>,
+
+    pub step: Step,
+    pub video: Option<Arc<LoadedVideo>>,
+    pub osd: Option<Arc<LoadedOsd>>,
+    pub srt: Option<Arc<LoadedSrt>>,
+    pub font: Option<Arc<LoadedFont>>,
+    /// The font at the size of the video, made when the font and the video are both open.
+    scaled_font: Option<Arc<ScaledFont>>,
+    pub telemetry: Option<Telemetry>,
+    pub busy: Busy,
+    pub file_errors: Vec<(FileKind, String)>,
+
+    pub sync: SyncInput,
+    pub preview: Preview,
+
+    pub preset_name: String,
+    pub selected_preset: Option<String>,
+    audio: Option<AudioPlayer>,
+    pub audio_error: Option<String>,
+
+    pub output_path: String,
+    pub overwrite: bool,
+    pub replace_audio: bool,
+    pub stretch: StretchInput,
+
+    pub render: RenderState,
+    pub queue: Queue,
+    pub command_lines: Vec<String>,
+}
+
+impl FlightReplay {
+    /// Starts the application: reads the settings and looks for FFmpeg.
+    pub fn boot() -> (Self, Task<Message>) {
+        let app = Self::new(config::default_path());
+        let preferred = app.settings.ffmpeg_dir.clone();
+        (
+            app,
+            Task::batch([
+                tasks::locate_tools(preferred),
+                iced::system::theme().map(Message::SystemTheme),
+            ]),
+        )
+    }
+
+    /// The application at the first step, with the settings read from `settings_path`.
+    pub fn new(settings_path: Option<PathBuf>) -> Self {
+        let (settings, preferences, notice) = settings_path.as_deref().map_or_else(
+            || (Settings::default(), Preferences::default(), None),
+            preferences::load,
+        );
+        Self {
+            settings,
+            preferences,
+            system_mode: iced::theme::Mode::None,
+            settings_path,
+            notices: notice.into_iter().collect(),
+            tools: ToolsState::Searching,
+            encoders: None,
+            step: Step::Welcome,
+            video: None,
+            osd: None,
+            srt: None,
+            font: None,
+            scaled_font: None,
+            telemetry: None,
+            busy: Busy::default(),
+            file_errors: Vec::new(),
+            sync: SyncInput::default(),
+            preview: Preview::default(),
+            preset_name: String::new(),
+            selected_preset: None,
+            audio: None,
+            audio_error: None,
+            output_path: String::new(),
+            overwrite: false,
+            replace_audio: false,
+            stretch: StretchInput::default(),
+            render: RenderState::Idle,
+            queue: Queue::default(),
+            command_lines: Vec::new(),
+        }
+    }
+
+    /// A file given on the command line, such as the video that the system opens with this application.
+    fn path_from_arguments() -> Option<PathBuf> {
+        std::env::args_os()
+            .nth(1)
+            .map(PathBuf::from)
+            .filter(|p| p.is_file())
+            // The settings and the output name keep this path, so it must not depend on the folder we run from.
+            .map(|p| std::path::absolute(&p).unwrap_or(p))
+    }
+
+    /// The colour scheme.
+    pub fn theme(&self) -> Theme {
+        match self.preferences.theme {
+            ThemeChoice::System => <Theme as iced::theme::Base>::default(self.system_mode),
+            ThemeChoice::Light => Theme::Light,
+            ThemeChoice::Dark => Theme::Dark,
+        }
+    }
+
+    /// Drag and drop, closing the window, and changes of the system colour scheme.
+    pub fn subscription() -> Subscription<Message> {
+        let events = iced::event::listen_with(|event, _status, _window| match event {
+            iced::Event::Window(iced::window::Event::FileDropped(path)) => {
+                Some(Message::FileDropped(path))
+            }
+            iced::Event::Window(iced::window::Event::CloseRequested) => {
+                Some(Message::CloseRequested)
+            }
+            _ => None,
+        });
+        Subscription::batch([
+            events,
+            iced::system::theme_changes().map(Message::SystemTheme),
+        ])
+    }
+
+    // ----- what the views and the wizard need to know
+
+    /// The tools, if they were found.
+    pub fn tools(&self) -> Option<Arc<Tools>> {
+        match &self.tools {
+            ToolsState::Found(tools) => Some(Arc::clone(tools)),
+            _ => None,
+        }
+    }
+
+    /// The facts the wizard rules work from.
+    pub fn context(&self) -> Context {
+        let signals_error = match &self.telemetry {
+            Some(Telemetry {
+                signals: Err(error),
+                ..
+            }) => Some(error.clone()),
+            _ => None,
+        };
+        Context {
+            tools_found: self.tools().is_some(),
+            video: self.video.is_some(),
+            osd: self.osd.is_some(),
+            font: self.font.is_some(),
+            srt: self.srt.is_some(),
+            draw_osd: self.settings.draw_osd,
+            draw_srt: self.settings.draw_srt,
+            make_sound: self.settings.make_sound,
+            sound_unavailable: self.sound_unavailable(),
+            signals_error,
+            output_path: !self.output_path.trim().is_empty(),
+            encoder: !self.settings.output.encoder.is_empty(),
+        }
+    }
+
+    /// Why the `.osd` cannot drive the sound, if it cannot.
+    pub fn sound_unavailable(&self) -> Option<String> {
+        let osd = self.osd.as_ref()?;
+        (osd.profile.telemetry_support() != TelemetrySupport::Available)
+            .then(|| osd.profile.explanation().to_owned())
+    }
+
+    /// The mapping between video time and telemetry time.
+    pub fn timeline(&self) -> Option<Timeline> {
+        let (video, osd) = (self.video.as_ref()?, self.osd.as_ref()?);
+        Some(Timeline::new(
+            self.sync.options(),
+            video.info.duration_s,
+            osd.file.duration_s(),
+        ))
+    }
+
+    /// The signals of the sound, if the telemetry has been read and has what the sound needs.
+    pub fn signals(&self) -> Option<Arc<SignalSet>> {
+        match &self.telemetry {
+            Some(Telemetry {
+                signals: Ok(signals),
+                ..
+            }) => Some(Arc::clone(signals)),
+            _ => None,
+        }
+    }
+
+    /// What went wrong when the file of this kind was opened.
+    pub fn file_error(&self, kind: FileKind) -> Option<&str> {
+        self.file_errors
+            .iter()
+            .find(|(k, _)| *k == kind)
+            .map(|(_, e)| e.as_str())
+    }
+
+    fn set_file_error(&mut self, kind: FileKind, error: Option<String>) {
+        self.file_errors.retain(|(k, _)| *k != kind);
+        if let Some(error) = error {
+            self.file_errors.push((kind, error));
+        }
+    }
+
+    /// Whether a render is running.
+    pub fn is_rendering(&self) -> bool {
+        matches!(self.render, RenderState::Running(_))
+    }
+
+    // ----- what is remembered and what is derived
+
+    fn save_settings(&self) {
+        if let Some(path) = &self.settings_path
+            && let Err(error) = preferences::save(path, &self.settings, &self.preferences)
+        {
+            tracing::warn!(%error, "could not save the settings");
+        }
+    }
+
+    fn rebuild_scaled_font(&mut self) {
+        self.scaled_font = match (&self.font, &self.video) {
+            (Some(font), Some(video)) => Some(Arc::new(
+                font.sheet
+                    .scaled(CharacterSize::for_video_height(video.info.height)),
+            )),
+            _ => None,
+        };
+    }
+
+    /// Works out again what the sound can follow, after the telemetry or the sound settings changed.
+    fn recompute_signals(&mut self) {
+        let (Some(osd), Some(telemetry)) = (&self.osd, &mut self.telemetry) else {
+            return;
+        };
+        let name = flight_replay_core::paths::file_name(osd.path());
+        telemetry.signals = SignalSet::collect(
+            &telemetry.recording.table,
+            &self.settings.sound,
+            &name,
+            telemetry.recording.frames,
+        )
+        .map(Arc::new)
+        .map_err(|e| e.to_string());
+    }
+
+    // ----- the messages
+
+    /// Reacts to a message.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one short arm for each message: a flat table is what lets the compiler check that all are handled"
+    )]
+    pub fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            // moving between the steps
+            Message::Next => self.go_to(self.step.next()),
+            Message::Back => self.go_to(self.step.previous()),
+            Message::GoTo(step) => self.go_to(Some(step)),
+
+            // the environment
+            Message::ToolsLocated(result) => self.tools_located(result),
+            Message::EncodersDetected(list) => self.encoders_detected(list),
+            Message::ChooseFfmpegFolder => tasks::pick_folder(
+                "Choose the folder of ffmpeg and ffprobe",
+                Message::FfmpegFolderChosen,
+            ),
+            Message::FfmpegFolderChosen(dir) => {
+                dir.map_or_else(Task::none, |dir| self.ffmpeg_folder_chosen(dir))
+            }
+            Message::Theme(theme) => self.choose_theme(theme),
+            Message::SystemTheme(mode) => {
+                self.system_mode = mode;
+                Task::none()
+            }
+            Message::DismissNotice(index) => {
+                if index < self.notices.len() {
+                    self.notices.remove(index);
+                }
+                Task::none()
+            }
+            Message::CloseRequested => self.close_requested(),
+
+            // the files
+            Message::Browse(kind) => self.browse(kind),
+            Message::FileChosen(kind, path) => {
+                path.map_or_else(Task::none, |path| self.open_file(kind, path))
+            }
+            Message::FileDropped(path) => self.open_dropped(path),
+            Message::Clear(kind) => self.clear_file(kind),
+            Message::VideoLoaded(result) => self.video_loaded(result),
+            Message::OsdLoaded(result) => self.osd_loaded(result),
+            Message::SrtLoaded(result) => self.srt_loaded(result),
+            Message::FontLoaded(result) => self.font_loaded(result),
+            Message::TelemetryReady(path, result) => self.telemetry_ready(&path, result),
+            Message::AddOsd => self.browse_more_osd(),
+            Message::OsdAdded(path) => path.map_or_else(Task::none, |path| self.add_osd(path)),
+            Message::RemoveOsdFile(index) => self.remove_osd(index),
+            Message::MoveOsdFileUp(index) => self.move_osd_up(index),
+
+            // what to draw and how
+            Message::DrawOsd(on) => self.set_draw_osd(on),
+            Message::DrawSrt(on) => self.set_draw_srt(on),
+            Message::MakeSound(on) => {
+                self.settings.make_sound = on;
+                Task::none()
+            }
+            Message::Osd(edit) => self.edit_osd(edit),
+            Message::Srt(edit) => self.edit_srt(edit),
+            Message::Sync(edit) => self.edit_sync(edit),
+            Message::Sound(edit) => self.edit_sound(edit),
+            Message::Output(edit) => self.edit_output(edit),
+            Message::BrowseOutput => self.browse_output(),
+            Message::OutputChosen(path) => {
+                if let Some(path) = path {
+                    self.output_path = path.display().to_string();
+                }
+                Task::none()
+            }
+
+            // the preview picture
+            Message::PreviewTime(seconds) => self.set_preview_time(seconds),
+            Message::PreviewTimeReleased => self.refresh_preview_if_open(),
+            Message::PreviewReady(sequence, result) => self.preview_ready(sequence, result),
+            Message::PreviewHover(point) => {
+                self.preview.hover = Some(point);
+                Task::none()
+            }
+            Message::PreviewExited => {
+                self.preview.hover = None;
+                Task::none()
+            }
+            Message::PreviewPressed => self.preview_pressed(),
+
+            // the sound preview
+            Message::PlayAudio => self.play_audio(),
+            Message::AudioRendered(result) => self.audio_rendered(result),
+            Message::StopAudio => self.stop_audio(),
+            Message::AudioTick => self.audio_tick(),
+
+            // the queue
+            Message::QueueAdd => self.queue_add(),
+            Message::QueueAddFolder => tasks::pick_folder(
+                "Choose the folder with the videos",
+                Message::QueueFolderChosen,
+            ),
+            Message::QueueFolderChosen(folder) => {
+                folder.map_or_else(Task::none, |folder| self.queue_plan_folder(folder))
+            }
+            Message::QueueFolderPlanned(result) => {
+                self.queue_folder_planned(result);
+                Task::none()
+            }
+            Message::QueueRemove(index) => {
+                self.queue_remove(index);
+                Task::none()
+            }
+            Message::QueueClearFinished => {
+                self.queue_clear_finished();
+                Task::none()
+            }
+            Message::QueueStart => self.queue_start(),
+
+            // the render
+            Message::StartRender => self.start_render(),
+            Message::CancelRender => {
+                self.cancel_render();
+                Task::none()
+            }
+            Message::Render(message) => self.render_message(message),
+            Message::OpenOutputFolder => {
+                self.open_output_folder();
+                Task::none()
+            }
+            Message::CopyCommand => iced::clipboard::write(self.command_lines.join("\n")),
+        }
+    }
+
+    /// Moves to a step, if the wizard allows it.
+    fn go_to(&mut self, target: Option<Step>) -> Task<Message> {
+        let Some(target) = target else {
+            return Task::none();
+        };
+        if self.is_rendering() || !wizard::can_go_to(self.step, target, &self.context()) {
+            return Task::none();
+        }
+        self.step = target;
+        self.save_settings();
+        if matches!(target, Step::Overlay | Step::Srt | Step::Sound)
+            && self.preview.handle.is_none()
+        {
+            return self.refresh_preview_if_open();
+        }
+        if target == Step::Render {
+            self.refresh_command_lines();
+        }
+        Task::none()
+    }
+
+    fn tools_located(&mut self, result: Result<Arc<Tools>, String>) -> Task<Message> {
+        match result {
+            Ok(tools) => {
+                self.tools = ToolsState::Found(Arc::clone(&tools));
+                let mut tasks = vec![tasks::detect_encoders(tools)];
+                if let Some(path) = Self::path_from_arguments() {
+                    tasks.push(self.open_dropped(path));
+                }
+                if let Some(path) = self.settings.font_path.clone()
+                    && path.is_file()
+                {
+                    tasks.push(self.open_file(FileKind::Font, path));
+                }
+                Task::batch(tasks)
+            }
+            Err(error) => {
+                self.tools = ToolsState::Missing(error);
+                Task::none()
+            }
+        }
+    }
+
+    /// Keeps the encoder that was chosen if it works. Otherwise takes the first one that does.
+    fn encoders_detected(&mut self, list: Arc<Vec<EncoderInfo>>) -> Task<Message> {
+        let works = |name: &str| list.iter().any(|e| e.name == name && e.works);
+        if !works(&self.settings.output.encoder)
+            && let Some(first) = list.iter().find(|e| e.works)
+        {
+            self.settings.output.encoder.clone_from(&first.name);
+        }
+        self.encoders = Some(list);
+        Task::none()
+    }
+
+    fn ffmpeg_folder_chosen(&mut self, dir: PathBuf) -> Task<Message> {
+        self.settings.ffmpeg_dir = Some(dir.clone());
+        self.tools = ToolsState::Searching;
+        self.save_settings();
+        tasks::locate_tools(Some(dir))
+    }
+
+    fn choose_theme(&mut self, theme: ThemeChoice) -> Task<Message> {
+        self.preferences.theme = theme;
+        self.save_settings();
+        Task::none()
+    }
+
+    /// Saves what is remembered, stops a render that is running, and closes the window.
+    fn close_requested(&mut self) -> Task<Message> {
+        self.save_settings();
+        if let RenderState::Running(running) = &self.render {
+            running.cancel.cancel();
+        }
+        iced::exit()
+    }
+}

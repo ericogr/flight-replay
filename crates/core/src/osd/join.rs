@@ -8,6 +8,7 @@
 //! The overlay and the sound read the joined file, so they cannot disagree about where a file starts.
 
 use super::{Firmware, Frame, OsdFile};
+use crate::display::clock;
 
 /// Where one file of a joined recording sits on the joined timeline.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,7 +75,7 @@ pub struct Joined {
 /// Seconds to add to the times of each file so that the files follow one another: the first keeps its times, and
 /// each following file starts `gap_s` seconds after the end of the one before it.
 #[must_use]
-pub fn shifts(files: &[&OsdFile], gap_s: f64) -> Vec<f64> {
+fn shifts(files: &[&OsdFile], gap_s: f64) -> Vec<f64> {
     let mut shifts = Vec::with_capacity(files.len());
     let mut end = 0.0;
     for (index, file) in files.iter().enumerate() {
@@ -191,17 +192,6 @@ impl Coverage {
                 clock(-delta)
             )
         })
-    }
-}
-
-/// `m:ss`, or `h:mm:ss`.
-fn clock(seconds: f64) -> String {
-    let total = seconds.max(0.0).round() as u64;
-    let (hours, minutes, seconds) = (total / 3600, total / 60 % 60, total % 60);
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
     }
 }
 
