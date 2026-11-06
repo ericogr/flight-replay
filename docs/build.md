@@ -57,8 +57,9 @@ Windows: `make` needs a shell. The packaging itself is plain Cargo (`cargo build
 ## Tests
 
 `make test` runs the unit tests, the tests with the real FFmpeg on the fixture clip, the golden images of the overlay,
-and the tests of the wizard. The wizard tests need no desktop: iced's simulator drives the real `update` and `view`,
-and the render tests run the whole pipeline. `FLIGHT_REPLAY_SNAPSHOTS=<folder> make test` saves a picture of every
+and the tests of the wizard. The wizard tests need no desktop and no GPU: iced's simulator drives the real `update`
+and `view` and draws with the software renderer (`ICED_TEST_BACKEND` in `.cargo/config.toml`), and the render tests run
+the whole pipeline. `FLIGHT_REPLAY_SNAPSHOTS=<folder> make test` saves a picture of every
 step the wizard tests go through, which is the way to look at a layout change.
 
 Variables that the tests read:

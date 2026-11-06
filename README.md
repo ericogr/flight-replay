@@ -51,7 +51,8 @@ winget install Gyan.FFmpeg   # Windows
    `WS_INAV_Europa_24.png`. Flight Replay does not include one.
 3. **OSD.** Check the position on the preview, centre it, mask elements by clicking them, and correct the timing.
 4. **SRT data.** Choose the fields and where they go.
-5. **Motor sound.** See what the recording gives the sound, change the parameters, and listen to a moment of the flight.
+5. **Motor sound.** See what the recording gives the sound, change the parameters, and listen to a moment of the
+   flight: the picture and the OSD follow the sound, so you can check the timing by eye.
 6. **Output.** Encoder, bitrate, 1440p, file name. You can render only a stretch first, as a quick test.
 7. **Render.** The summary, the FFmpeg commands that will run, and the progress. The queue is here too.
 
@@ -70,7 +71,8 @@ make dist       # the archive of this system
 ```
 
 The requirements for each system, the targets, the tests and the releases are in [docs/build.md](docs/build.md).
-The plan and the state of the work are in [PLAN.md](PLAN.md). The formats are described in [docs/formats](docs/formats).
+How the code is organised is in [docs/architecture.md](docs/architecture.md). The plan and the state of the work are
+in [PLAN.md](PLAN.md). The formats are described in [docs/formats](docs/formats).
 
 ## License
 

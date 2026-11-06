@@ -31,6 +31,16 @@ A file ported or adapted from another project also names its origin, its license
 Add the new work to `NOTICE` when a file is ported. Dependencies are added to `deny.toml` only if their license
 is not already allowed.
 
+## Where code goes
+
+Read [docs/architecture.md](docs/architecture.md) first. The short version: logic that does not need a window goes in
+`crates/core`, so a command line can use it later; the window only asks for it. A new message of the window needs an arm
+in `update` (`crates/gui/src/app/mod.rs`) and a handler in the module of `app/` it belongs to. Before you write a helper,
+look for one: paths are in `paths`, times in `display`.
+
+Write a test when there is logic to check: a parser, a rule, a mapping, a way of reading what the user typed. Do not write
+one for code that a tool generated, for the layout of a view, or for a function that only calls another.
+
 ## Dependencies
 
 Dependencies must be compatible with GPL-3.0-only. `make deny` checks the licenses, advisories and sources.

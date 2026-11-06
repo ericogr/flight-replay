@@ -54,7 +54,7 @@ options the user chooses at the end.
 - Synthesis model: pitch from throttle (phase accumulator, asymmetric smoothing), volume and propeller noise
   from current, wind from air speed, stereo balance from roll. Output is deterministic.
 - Audio parameters grouped as motor, tone, propeller, wind, loudness and smoothing, with named presets.
-- Audio preview: render N seconds from a chosen start time and play them.
+- Audio preview: render N seconds from a chosen start time and play them. The picture and the OSD follow the sound while it plays, so the timing can be judged by eye.
 - Output: AAC audio muxed with the video. When no overlay is requested, the video stream is copied unchanged.
 
 ### 2.3 Non-goals for v1
@@ -147,25 +147,21 @@ flight-replay/
 ├── Cargo.toml              workspace: crates/*, xtask; shared dependencies and lints
 ├── Cargo.lock              committed (this is an application)
 ├── rust-toolchain.toml     pinned stable toolchain, with rustfmt and clippy
-├── rustfmt.toml, clippy.toml
-├── deny.toml               license, advisory and source policy (section 4.2)
+├── rustfmt.toml, clippy.toml, deny.toml (license, advisory and source policy, section 4.2)
+├── about.toml, about.hbs   cargo-about configuration and template (make notices)
+├── .cargo/config.toml      the `cargo xtask` alias, and the software renderer for the GUI tests
 ├── Makefile
 ├── PLAN.md                 this file
-├── LICENSE                 GPL-3.0 text
-├── NOTICE                  origins and copyright of ported code
+├── LICENSE, NOTICE         GPL-3.0 text; origins and copyright of ported code
 ├── THIRD_PARTY_NOTICES.md  generated (make notices)
 ├── README.md, CHANGELOG.md, CONTRIBUTING.md (CHANGELOG follows Keep a Changelog)
-├── assets/                 icons, desktop entry, macOS Info.plist template, OFL fonts
-├── docs/
-│   ├── formats/            osd.md, font.md, srt.md (format notes)
-│   ├── telemetry/          inav.md, betaflight.md (rule notes)
-│   ├── audio-model.md      synthesis model and parameters
-│   └── build.md            system packages needed per OS
-├── local/                  git-ignored: raw recordings and private settings, never committed
+├── assets/                 fonts (OFL) and the icon (SVG, PNG sizes, ICO)
+├── packaging/              Linux desktop entry and install.sh; macOS Info.plist
+├── docs/                   architecture.md, build.md, audio-model.md, performance.md, formats/, telemetry/
 ├── tests/
 │   ├── fixtures/           trimmed clips (D7)
 │   └── golden/             reference images for overlay tests
-├── xtask/                  developer automation written in Rust (fixtures, golden images, packaging)
+├── xtask/                  developer automation written in Rust (fixtures, packaging)
 ├── crates/
 │   ├── core/   (flight-replay-core)  library, no GUI dependency
 │   └── gui/    (flight-replay)       iced application, binary `flight-replay`
@@ -173,28 +169,30 @@ flight-replay/
 ```
 
 `xtask` is a developer tool, not a user CLI. Make calls it for tasks that are awkward in shell (cutting
-fixtures, regenerating golden images, building archives). If you prefer, those tasks can become plain shell
-scripts and `xtask` can be removed.
+fixtures, building archives). The golden images are rewritten by a test run with
+`FLIGHT_REPLAY_UPDATE_GOLDEN=1` (`make golden`). `docs/architecture.md` describes the code as it is built.
 
 ### 5.2 Core modules (`crates/core`)
 
-| Module | Responsibility | Origin |
-|--------|----------------|--------|
-| `ffmpeg` | Find `ffmpeg` and `ffprobe`. Parse ffprobe output. List encoders and check them with a one-frame test encode. Spawn processes without a shell. No console window on Windows. | adapted from walksnail `ffmpeg/` (dependencies, encoders, video_info, message) |
-| `media` | Probe, raw RGBA frame decoding over a pipe, encoder and muxer process, post-render check. | adapted from walksnail `ffmpeg/render.rs`; probe and mux from fpv-motorsound `internal/media` |
-| `osd` | One `.osd` parser: file, frames, glyph grid, firmware field. | merges walksnail `osd/` and fpv-motorsound `internal/osd` |
-| `profile` | Chooses the telemetry profile from the firmware field. Holds the rules of each profile. | new |
-| `inav` | INAV glyph table and rules for the eight sound signals, plus the fields shown by the probe. | fpv-motorsound `internal/inav` and `internal/osddecode` (subset); fpv-osd-decoder glyph table |
-| `betaflight` | Betaflight glyph table and rules (phase P4b). | new, from `docs/telemetry/betaflight.md` |
-| `font` | OSD font files: 256 and 512 glyphs, 2-colour and 4-colour. Glyph bitmaps. | adapted from walksnail `font/` |
-| `srt` | SRT parser and field extraction. | adapted from walksnail `srt/`. Replace the parser crate if it fails the license or maintenance check |
-| `overlay` | Compose OSD and SRT onto RGBA frames. Masks, positions, centring, chroma-key background. | adapted from walksnail `overlay/`, without the egui types |
-| `telemetry` | Time series with holds, back-fill and coverage statistics. | ported from fpv-motorsound `internal/telemetry` |
-| `timeline` | One mapping from video time to OSD frame index and to telemetry time (offset, scale, latency). Used by the overlay and the sound. | merges walksnail `overlay/iter.rs` and fpv-motorsound `internal/timesync` |
-| `synth` | Audio engine: smoothers, phase-accumulator oscillators, state-variable filters, noise, soft limiter, control-rate ramps, block rendering. | ported from fpv-motorsound `internal/synth` |
-| `audio` | PCM buffers and WAV writing. | ported from fpv-motorsound `internal/media/wav.go` |
-| `config` | Settings types, presets, TOML load and save, defaults and validation. | adapted from walksnail `config.rs` (confy replaced by TOML); defaults from fpv-motorsound `internal/config` |
-| `render` | Job model, pipeline orchestration, progress events, cancellation, partial file then rename, post-render check. | adapted from walksnail `ffmpeg/render.rs`; ported from fpv-motorsound `internal/pipeline` |
+Where each module comes from. What each one does is in `docs/architecture.md`.
+
+| Module | Origin |
+|--------|--------|
+| `ffmpeg` | adapted from walksnail `ffmpeg/` (dependencies, encoders, video_info, message); probe and the stream-copy mux from fpv-motorsound `internal/media` |
+| `osd` | merges walksnail `osd/` and fpv-motorsound `internal/osd`; `join` is new |
+| `font` | adapted from walksnail `font/` |
+| `srt` | adapted from walksnail `srt/` |
+| `overlay` | adapted from walksnail `overlay/`, without the egui types |
+| `telemetry` | the decoder, the INAV glyph table and rules, the series and the table are ported from fpv-motorsound `internal/osddecode`, `internal/osdsource`, `internal/inav` and `internal/telemetry`; the glyph table also from fpv-osd-decoder |
+| `timeline` | merges walksnail `overlay/iter.rs` and fpv-motorsound `internal/timesync` |
+| `synth` | ported from fpv-motorsound `internal/synth` |
+| `audio` | ported from fpv-motorsound `internal/media/wav.go` |
+| `config` | adapted from walksnail `config.rs` (confy replaced by TOML); defaults from fpv-motorsound `internal/config` |
+| `render` | adapted from walksnail `ffmpeg/render.rs`; ported from fpv-motorsound `internal/pipeline`; `builder` and `folder` are new |
+| `discover` | adapted from walksnail and from fpv-motorsound `internal/pipeline/discover.go` |
+| `paths`, `display` | new |
+
+A Betaflight table and rules (phase P4b) would be a `telemetry::betaflight` module next to `inav`.
 
 Rules for the core crate:
 
@@ -719,3 +717,21 @@ These do not block P0. The defaults are used unless the owner changes them.
   preview, a drag and drop from Thunar, and saving the settings when the window is closed. One bug found and fixed: a
   video given on the command line as a relative path left relative paths in the settings and in the output name.
   Still unchecked: listening to the sound, and everything on Windows and macOS (the manual walk-through item of P7).
+- Revision 9, 2026-11-06: review of the whole code for coupling, duplication and clean code.
+  - Sound preview (step 5): the picture and the OSD now follow the sound while it plays (they stayed on one frame
+    before), the sound is limited to what is left of the video, the slider stops at the last frame (a picture at the
+    very end of the video failed), and the preview goes back to where it started when the sound ends.
+  - Core: removed code that nothing used (`Recording::load_joined`, `Segment`, `filled_pct`, `first_crossing`,
+    `extra_fields`) and the second way to join `.osd` files; one `Timeline::osd_frame`, one `Sound` struct and one
+    sound loop in the render (`sound_only` and `write_wav` were copies of each other, one with eight arguments), one
+    helper for the spawn error, the path helpers (`paths`) and the time text (`display`); the planning of a folder
+    moved from the GUI to the core (`render::plan_folder`) with typed reasons; discovery no longer lists the videos
+    Flight Replay wrote (a second run over a folder tried to render its own output).
+  - Settings: the colour scheme and the last folder are the window's, not the core's. `config` reads and writes any
+    type, and the GUI keeps `Preferences` in the same `settings.toml` (the old files are read as before).
+  - GUI: `app.rs` (1,400 lines, two levels of `match` with wildcards that could hide an unhandled message) became the
+    `app/` folder with one flat `update` the compiler checks; the typed timing and stretch are read from the text
+    when needed instead of being kept twice; the geometry of the OSD grid under the pointer left the app and has
+    tests; the duplicated `audio_playing` flag, `LoadedOsd::path` and several copies of the same helpers are gone.
+  - The GUI tests use the software renderer (`.cargo/config.toml`): with the GPU renderer one run in five crashed.
+  - New `docs/architecture.md`.
