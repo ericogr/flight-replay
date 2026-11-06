@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools, probe};
+use flight_replay_core::font::{BundledFont, CharacterSize};
 use flight_replay_core::osd::Coverage;
 use flight_replay_core::synth::{MOTOR_PRESETS, SoundSettings, motor_preset_in_use};
 use iced::Task;
@@ -24,9 +25,10 @@ use crate::app::{FlightReplay, ToolsState};
 use crate::message::{Message, OutputEdit, SoundEdit};
 use crate::preferences::ThemeChoice;
 use crate::sound_params::Param;
-use crate::state::{FileKind, QueueStatus, RenderState};
+use crate::state::{FileKind, FontSource, QueueStatus, RenderState};
 use crate::tasks;
 use crate::view;
+use crate::view::input::NO_FONT_HINT;
 use crate::view::sound::CUSTOM_SOUND_HINT;
 use crate::wizard::Step;
 
@@ -53,6 +55,12 @@ impl Harness {
             "the tools are found"
         );
         Some(harness)
+    }
+
+    /// Closes the application and starts it again, which reads the settings it saved.
+    fn restart(&mut self) {
+        self.app = FlightReplay::new(Some(self.dir.path().join("settings.toml")));
+        self.run(tasks::locate_tools(None));
     }
 
     /// Runs a task to its end, feeding what it produces back into the application.
@@ -742,4 +750,122 @@ fn a_queue_renders_the_videos_of_a_folder_one_after_the_other() {
 
     app.click("Clear the finished");
     assert!(app.app.queue.items.is_empty());
+}
+
+#[test]
+fn a_font_of_the_program_is_chosen_from_the_list_and_remembered() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    app.send(Message::FileDropped(clip_with(
+        &app,
+        "flight",
+        &["osd", "srt"],
+    )));
+    assert!(app.app.font.is_none());
+    assert!(!app.app.draw_osd_on(), "the OSD needs a font");
+
+    let inav = BundledFont::find("inav-default").expect("the INAV font");
+    app.send(Message::UseBundledFont(inav));
+    let font = app.app.font.as_ref().expect("the font is loaded");
+    assert!(
+        matches!(font.source, FontSource::Bundled(b) if b.id == "inav-default"),
+        "{:?}",
+        font.source
+    );
+    assert!(app.app.file_errors.is_empty(), "{:?}", app.app.file_errors);
+    assert_eq!(
+        app.app.settings.bundled_font.as_deref(),
+        Some("inav-default")
+    );
+    assert_eq!(app.app.settings.font_path, None);
+    assert!(app.app.draw_osd_on(), "the OSD can be drawn with it");
+
+    // The clip is 720p, so the plan takes the sheet drawn for 720p.
+    let plan = app.app.build_plan().expect("a plan");
+    let layer = plan.osd_layer.expect("the OSD is drawn");
+    assert_eq!(layer.font.layout().size, CharacterSize::Small);
+    assert_eq!(layer.font.layout().glyph_count(), 512);
+
+    // A file of the user takes its place, and only one of the two is remembered.
+    let file = app.path("font.png");
+    write_font(&file);
+    app.send(Message::FileDropped(file.clone()));
+    let font = app.app.font.as_ref().expect("the font is loaded");
+    assert!(matches!(&font.source, FontSource::File(path) if path == &file));
+    assert_eq!(app.app.settings.font_path, Some(file));
+    assert_eq!(app.app.settings.bundled_font, None);
+
+    // And so does a font of the program, over the file.
+    let betaflight = BundledFont::find("betaflight-material").expect("the Betaflight font");
+    app.send(Message::UseBundledFont(betaflight));
+    assert_eq!(
+        app.app.settings.bundled_font.as_deref(),
+        Some("betaflight-material")
+    );
+    assert_eq!(app.app.settings.font_path, None);
+
+    // It is read again when the program starts.
+    app.send(Message::GoTo(Step::Input));
+    app.restart();
+    let font = app.app.font.as_ref().expect("the font comes back");
+    assert!(
+        matches!(font.source, FontSource::Bundled(b) if b.id == "betaflight-material"),
+        "{:?}",
+        font.source
+    );
+
+    app.send(Message::Clear(FileKind::Font));
+    assert!(app.app.font.is_none());
+    assert_eq!(app.app.settings.bundled_font, None);
+    assert_eq!(app.app.settings.font_path, None);
+}
+
+#[test]
+fn the_font_step_describes_the_font_and_flags_one_for_another_firmware() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    app.click("Next");
+    assert_eq!(app.app.step, Step::Input);
+    app.send(Message::FileDropped(clip_with(
+        &app,
+        "flight",
+        &["osd", "srt"],
+    )));
+    assert!(app.shows("OSD font"));
+    assert!(
+        app.shows(NO_FONT_HINT),
+        "the step offers the fonts of the program before a font is chosen"
+    );
+
+    let inav = BundledFont::find("inav-default").expect("the INAV font");
+    app.send(Message::UseBundledFont(inav));
+    assert!(app.shows("Cells 720p (24x36) and 1080p (36x54), standard, 512 glyphs"));
+    assert!(app.shows(inav.credit), "the credit is on the screen");
+    let mismatch =
+        "This font is for Betaflight, and the .osd file is from INAV: the symbols would not match.";
+    assert!(!app.shows(mismatch), "the clip is from INAV");
+    app.snapshot("2-input-bundled-font");
+
+    // The preview draws the OSD with it.
+    app.send(Message::GoTo(Step::Overlay));
+    assert_eq!(app.app.step, Step::Overlay);
+    assert!(
+        app.app.preview.handle.is_some() && app.app.preview.error.is_none(),
+        "the picture is made: {:?}",
+        app.app.preview.error
+    );
+    app.snapshot("3-osd-bundled-font");
+    app.send(Message::GoTo(Step::Input));
+    assert_eq!(app.app.step, Step::Input);
+
+    let betaflight = BundledFont::find("betaflight-material").expect("the Betaflight font");
+    app.send(Message::UseBundledFont(betaflight));
+    assert!(app.shows(betaflight.credit));
+    assert!(app.shows(mismatch), "the clip is not from Betaflight");
+    app.snapshot("2-input-font-mismatch");
+
+    // The fonts of the program are not a way to pass a wrong sheet silently: the user can still go on.
+    assert!(!app.clicks("Next").is_empty());
 }

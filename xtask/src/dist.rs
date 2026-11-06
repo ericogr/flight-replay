@@ -10,7 +10,8 @@
 //! - Windows: a `.zip` with `flight-replay.exe`.
 //! - macOS: a `.zip` with `Flight Replay.app`.
 //!
-//! Each archive also holds the license, the notices and the README. `SHA256SUMS` lists every archive.
+//! Each archive also holds the license, the notices, the README and the license texts of the OSD fonts compiled into
+//! the program. `SHA256SUMS` lists every archive.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -44,6 +45,15 @@ const DOCUMENTS: [&str; 5] = [
     "README.md",
     "CHANGELOG.md",
     "THIRD_PARTY_NOTICES.md",
+];
+
+/// The notices of the OSD fonts compiled into the program, under `assets/osd-fonts/`. They go in every archive, in
+/// the same layout, so that the links of the README there work.
+const FONT_NOTICES: [&str; 4] = [
+    "README.md",
+    "licenses/CC-BY-SA-4.0.txt",
+    "licenses/Apache-2.0.txt",
+    "licenses/BebasNeue-OFL.txt",
 ];
 
 /// The system an archive is for.
@@ -150,6 +160,12 @@ pub fn entries(ctx: &Pack, target: Target) -> Result<Vec<Entry>> {
         entries.push(Entry::file(
             format!("{base}/{document}"),
             ctx.read(document)?,
+        ));
+    }
+    for notice in FONT_NOTICES {
+        entries.push(Entry::file(
+            format!("{base}/osd-fonts/{notice}"),
+            ctx.read(&format!("assets/osd-fonts/{notice}"))?,
         ));
     }
     match target {
@@ -460,6 +476,23 @@ mod tests {
             .find(|(n, _)| n.ends_with("/flight-replay"))
             .unwrap();
         assert_eq!(program.1 & 0o111, 0o111, "the program is executable");
+    }
+
+    #[test]
+    fn every_archive_carries_the_notices_of_the_fonts() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = context(dir.path());
+        for target in [Target::Linux, Target::Windows, Target::Macos] {
+            let entries = entries(&ctx, target).unwrap();
+            for notice in FONT_NOTICES {
+                let path = format!("{}/osd-fonts/{notice}", ctx.base(target));
+                let entry = entries
+                    .iter()
+                    .find(|e| e.path == path)
+                    .unwrap_or_else(|| panic!("{path} is in the {} archive", target.name()));
+                assert!(!entry.data.is_empty(), "{path} has content");
+            }
+        }
     }
 
     #[test]

@@ -32,7 +32,7 @@ impl FlightReplay {
             osd: self.osd.as_ref().map(|o| &*o.file),
             osd_path: self.osd.as_ref().map(|o| o.path().to_path_buf()),
             srt: self.srt.as_ref().map(|s| &*s.file),
-            font: self.font.as_ref().map(|f| &*f.sheet),
+            font: self.font.as_ref().map(|f| &f.font),
             settings: &settings,
             encoders: self.encoders.as_ref().map_or(&[], |list| list.as_slice()),
             sync: self.sync.options(),

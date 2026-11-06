@@ -13,7 +13,7 @@ use super::{Availability, Omission, OutputPlan, PlanInputs, RenderPlan, build_pl
 use crate::config::Settings;
 use crate::discover::{self, Flight};
 use crate::ffmpeg::{EncoderInfo, FfmpegError, Tools, probe};
-use crate::font::FontSheet;
+use crate::font::OsdFont;
 use crate::osd::{OsdError, OsdFile};
 use crate::paths::file_name;
 use crate::srt::{SrtError, SrtFile};
@@ -28,8 +28,8 @@ pub struct FlightDefaults {
     pub settings: Settings,
     /// The encoders FFmpeg has, to find the options of the chosen one.
     pub encoders: Vec<EncoderInfo>,
-    /// The OSD font.
-    pub font: Option<FontSheet>,
+    /// The OSD font, with the sheet that suits each video chosen when its plan is made.
+    pub font: Option<OsdFont>,
     /// Synchronisation of each video and its OSD. A manual scale belongs to one video, so it should not be given
     /// here.
     pub sync: SyncOptions,

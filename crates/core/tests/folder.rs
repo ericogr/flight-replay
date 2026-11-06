@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use flight_replay_core::config::Settings;
 use flight_replay_core::ffmpeg::Tools;
-use flight_replay_core::font::CharacterSize;
+use flight_replay_core::font::{CharacterSize, OsdFont};
 use flight_replay_core::render::{FlightDefaults, FlightError, plan_folder};
 use flight_replay_core::timeline::SyncOptions;
 
@@ -51,7 +51,9 @@ fn defaults() -> FlightDefaults {
     FlightDefaults {
         settings: Settings::default(),
         encoders: Vec::new(),
-        font: Some(common::synthetic_sheet(CharacterSize::Small)),
+        font: Some(OsdFont::single(common::synthetic_sheet(
+            CharacterSize::Small,
+        ))),
         sync: SyncOptions::default(),
         overwrite: false,
         replace_audio: false,

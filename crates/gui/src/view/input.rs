@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 EricoGR
 
+use flight_replay_core::font::{BUNDLED_FONTS, BundledFont, FontSheet};
 use flight_replay_core::osd::Coverage;
 use iced::Element;
-use iced::widget::{column, row, text};
+use iced::widget::{column, pick_list, row, text};
 
-use super::widgets::{action, hint, page, path_text, problem, section};
+use super::widgets::{action, hint, labeled, page, path_text, problem, section};
 use crate::app::FlightReplay;
 use crate::message::Message;
-use crate::state::FileKind;
+use crate::state::{FileKind, FontSource, LoadedFont};
 use flight_replay_core::display::clock_tenths;
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
@@ -184,31 +185,100 @@ fn srt(app: &FlightReplay) -> Element<'_, Message> {
         .into()
 }
 
+/// What the font section says before a font is chosen.
+pub const NO_FONT_HINT: &str = "The OSD is drawn with a font. Choose one that comes with the program, or the PNG of your goggles, such as WS_INAV_Europa_24.png from the userfont folder.";
+
 fn font(app: &FlightReplay) -> Element<'_, Message> {
-    let body: Element<'_, Message> = match &app.font {
-        Some(font) => {
-            let layout = font.sheet.layout();
-            let colours = if layout.pages == 4 { "four-colour" } else { "standard" };
-            column![
-                row![path_text(&font.path), buttons(FileKind::Font, true, app.busy.font)].spacing(12),
-                hint(format!(
-                    "{} cells ({}), {colours}, {} glyphs",
-                    layout.size,
-                    format_args!("{}x{}", layout.size.width(), layout.size.height()),
-                    layout.glyph_count()
-                )),
-            ]
-            .spacing(6)
-            .into()
-        }
-        None => column![
-            row![text("No font yet."), buttons(FileKind::Font, false, app.busy.font)].spacing(12),
-            hint("The font is the PNG of your goggles, such as WS_INAV_Europa_24.png from the userfont folder. It is needed to draw the OSD."),
-        ]
-        .spacing(6)
-        .into(),
+    let busy = app.busy.font;
+    let open = app.font.as_ref().map(|font| &font.source);
+    let bundled: Vec<&'static BundledFont> = BUNDLED_FONTS.iter().collect();
+    let in_use = match open {
+        Some(FontSource::Bundled(font)) => Some(*font),
+        _ => None,
     };
-    column![body, status(app, FileKind::Font, app.busy.font)]
+
+    let is_file = matches!(open, Some(FontSource::File(_)));
+    let built_in = labeled(
+        "Built in",
+        row![
+            pick_list(bundled, in_use, Message::UseBundledFont).placeholder("Choose a font…"),
+            action(
+                "Remove",
+                (in_use.is_some() && !busy).then_some(Message::Clear(FileKind::Font))
+            ),
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center),
+    );
+    let from_file = labeled(
+        "Or a file",
+        row![
+            match open {
+                Some(FontSource::File(path)) => path_text(path),
+                _ => text("None chosen.").into(),
+            },
+            action(
+                if is_file { "Change…" } else { "Choose…" },
+                (!busy).then_some(Message::Browse(FileKind::Font))
+            ),
+            action(
+                "Remove",
+                (is_file && !busy).then_some(Message::Clear(FileKind::Font))
+            ),
+        ]
+        .spacing(12)
+        .align_y(iced::Alignment::Center),
+    );
+
+    let mut items = column![built_in, from_file].spacing(8);
+    match &app.font {
+        Some(font) => {
+            items = items.push(hint(font_summary(font)));
+            if let FontSource::Bundled(bundled) = &font.source {
+                items = items.push(hint(bundled.credit));
+                if let Some(osd) = &app.osd
+                    && osd.file.firmware != bundled.firmware()
+                {
+                    items = items.push(problem(format!(
+                        "This font is for {}, and the .osd file is from {}: the symbols would not match.",
+                        bundled.firmware(),
+                        osd.file.firmware
+                    )));
+                }
+            }
+        }
+        None => {
+            items = items.push(hint(NO_FONT_HINT));
+        }
+    }
+    column![items, status(app, FileKind::Font, busy)]
         .spacing(6)
         .into()
+}
+
+/// The cells and glyphs of a font, in a line.
+fn font_summary(font: &LoadedFont) -> String {
+    let layouts: Vec<_> = font.font.sheets().map(FontSheet::layout).collect();
+    let sizes: Vec<String> = layouts
+        .iter()
+        .map(|layout| {
+            format!(
+                "{} ({}x{})",
+                layout.size,
+                layout.size.width(),
+                layout.size.height()
+            )
+        })
+        .collect();
+    let first = layouts.first().copied();
+    let colours = if first.is_some_and(|layout| layout.pages == 4) {
+        "four-colour"
+    } else {
+        "standard"
+    };
+    format!(
+        "Cells {}, {colours}, {} glyphs",
+        sizes.join(" and "),
+        first.map_or(0, |layout| layout.glyph_count())
+    )
 }

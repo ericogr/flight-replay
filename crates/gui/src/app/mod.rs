@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use flight_replay_core::config::{self, Settings};
 use flight_replay_core::ffmpeg::{EncoderInfo, Tools};
-use flight_replay_core::font::{CharacterSize, ScaledFont};
+use flight_replay_core::font::{BundledFont, ScaledFont};
 use flight_replay_core::render::Availability;
 use flight_replay_core::synth::SignalSet;
 use flight_replay_core::timeline::Timeline;
@@ -315,10 +315,7 @@ impl FlightReplay {
 
     fn rebuild_scaled_font(&mut self) {
         self.scaled_font = match (&self.font, &self.video) {
-            (Some(font), Some(video)) => Some(Arc::new(
-                font.sheet
-                    .scaled(CharacterSize::for_video_height(video.info.height)),
-            )),
+            (Some(font), Some(video)) => Some(Arc::new(font.font.scaled_for(video.info.height))),
             _ => None,
         };
     }
@@ -383,6 +380,7 @@ impl FlightReplay {
             }
             Message::FileDropped(path) => self.open_dropped(path),
             Message::Clear(kind) => self.clear_file(kind),
+            Message::UseBundledFont(font) => self.use_bundled_font(font),
             Message::VideoLoaded(result) => self.video_loaded(result),
             Message::OsdLoaded(result) => self.osd_loaded(result),
             Message::SrtLoaded(result) => self.srt_loaded(result),
@@ -501,7 +499,15 @@ impl FlightReplay {
                 if let Some(path) = Self::path_from_arguments() {
                     tasks.push(self.open_dropped(path));
                 }
-                if let Some(path) = self.settings.font_path.clone()
+                // The font used last: one of the program's, or a file that is still there.
+                if let Some(font) = self
+                    .settings
+                    .bundled_font
+                    .as_deref()
+                    .and_then(BundledFont::find)
+                {
+                    tasks.push(self.use_bundled_font(font));
+                } else if let Some(path) = self.settings.font_path.clone()
                     && path.is_file()
                 {
                     tasks.push(self.open_file(FileKind::Font, path));

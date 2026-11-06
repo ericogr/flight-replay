@@ -23,6 +23,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   still be changed, and the sound list says "Custom" when one was. Two more sliders, the whine pitch and the sharpness
   of the propeller noise.
 - An option to show the FFmpeg command before rendering.
+- OSD fonts that come with the program: the default font of INAV (GPL-3.0) and the Material OSD font for Betaflight
+  (CC BY-SA 4.0), each with a sheet for 720p and one for 1080p. The input step has a list of them next to the choice
+  of a file, remembers the choice, shows the credit of the font, and warns when the font is for another firmware than
+  the `.osd` file. A video, or each video of a folder, is drawn with the sheet nearest to its size. The sheets, their
+  licenses and where they come from are in `assets/osd-fonts/`; fonts whose license does not allow redistribution are
+  left out, and the README there says which and why. The release archives carry the license texts.
 
 ### Changed
 

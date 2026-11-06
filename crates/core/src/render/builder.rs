@@ -13,7 +13,7 @@ use super::{
 };
 use crate::config::{OutputSettings, Settings};
 use crate::ffmpeg::{EncoderInfo, VideoInfo};
-use crate::font::FontSheet;
+use crate::font::OsdFont;
 use crate::osd::OsdFile;
 use crate::srt::SrtFile;
 use crate::timeline::SyncOptions;
@@ -31,7 +31,7 @@ pub struct PlanInputs<'a> {
     /// The subtitles.
     pub srt: Option<&'a SrtFile>,
     /// The OSD font.
-    pub font: Option<&'a FontSheet>,
+    pub font: Option<&'a OsdFont>,
     /// What to draw, and how.
     pub settings: &'a Settings,
     /// The encoders FFmpeg has, to find the options of the chosen one.
@@ -87,7 +87,7 @@ pub fn build_plan(inputs: &PlanInputs<'_>) -> Result<RenderPlan, Vec<String>> {
 
     let osd_layer = match (inputs.font, settings.draw_osd) {
         (Some(font), true) => Some(OsdLayer {
-            font: font.clone(),
+            font: font.sheet_for(inputs.info.height).clone(),
             options: settings.osd.clone(),
         }),
         (None, true) => {
@@ -216,6 +216,58 @@ mod tests {
         };
         assert!(problems.iter().any(|p| p.contains("font")), "{problems:?}");
         assert!(problems.iter().any(|p| p.contains(".srt")), "{problems:?}");
+    }
+
+    /// A font with a sheet for 720p and one for 1080p.
+    fn two_sizes() -> OsdFont {
+        let sheet = |size: crate::font::CharacterSize| {
+            crate::font::FontSheet::from_image(&image::RgbaImage::new(
+                size.width(),
+                size.height() * 256,
+            ))
+            .unwrap()
+        };
+        OsdFont::new(
+            sheet(crate::font::CharacterSize::Small),
+            vec![sheet(crate::font::CharacterSize::Large)],
+        )
+    }
+
+    #[test]
+    fn the_plan_takes_the_sheet_that_suits_the_video() {
+        use crate::font::CharacterSize;
+        use crate::osd::Firmware;
+
+        let encoders = encoders();
+        let settings = Settings {
+            draw_osd: true,
+            draw_srt: false,
+            make_sound: false,
+            ..Settings::default()
+        };
+        let osd = OsdFile {
+            firmware: Firmware::Inav,
+            columns: 1,
+            rows: 1,
+            frames: Vec::new(),
+            trailing_bytes: 0,
+        };
+        let font = two_sizes();
+        let sheet_of = |height: u32| {
+            let mut inputs = inputs(&settings, &encoders);
+            inputs.osd = Some(&osd);
+            inputs.font = Some(&font);
+            inputs.info.height = height;
+            build_plan(&inputs)
+                .expect("a plan")
+                .osd_layer
+                .expect("the OSD is drawn")
+                .font
+                .layout()
+                .size
+        };
+        assert_eq!(sheet_of(720), CharacterSize::Small);
+        assert_eq!(sheet_of(1080), CharacterSize::Large);
     }
 
     #[test]

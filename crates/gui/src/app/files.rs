@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use flight_replay_core::discover;
+use flight_replay_core::font::BundledFont;
 use flight_replay_core::paths::parent_folder;
 use flight_replay_core::render::OutputPlan;
 use flight_replay_core::telemetry::Recording;
@@ -15,7 +16,8 @@ use iced::Task;
 use super::FlightReplay;
 use crate::message::Message;
 use crate::state::{
-    FileKind, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, Preview, RenderState, Telemetry,
+    FileKind, FontSource, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, Preview, RenderState,
+    Telemetry,
 };
 use crate::tasks;
 
@@ -106,6 +108,7 @@ impl FlightReplay {
             FileKind::Font => {
                 self.font = None;
                 self.settings.font_path = None;
+                self.settings.bundled_font = None;
                 self.scaled_font = None;
             }
         }
@@ -254,7 +257,17 @@ impl FlightReplay {
         self.busy.font = false;
         match result {
             Ok(font) => {
-                self.settings.font_path = Some(font.path.clone());
+                // What is remembered is the file or the font of the program, never both.
+                match &font.source {
+                    FontSource::File(path) => {
+                        self.settings.font_path = Some(path.clone());
+                        self.settings.bundled_font = None;
+                    }
+                    FontSource::Bundled(bundled) => {
+                        self.settings.bundled_font = Some(bundled.id.to_owned());
+                        self.settings.font_path = None;
+                    }
+                }
                 self.font = Some(font);
                 self.rebuild_scaled_font();
                 self.set_file_error(FileKind::Font, None);
@@ -265,6 +278,13 @@ impl FlightReplay {
                 Task::none()
             }
         }
+    }
+
+    /// Starts reading a font that comes with the program.
+    pub(super) fn use_bundled_font(&mut self, font: &'static BundledFont) -> Task<Message> {
+        self.set_file_error(FileKind::Font, None);
+        self.busy.font = true;
+        tasks::load_bundled_font(font)
     }
 
     /// The telemetry of the `.osd` at `path`. It is dropped if that file was replaced while it was read.

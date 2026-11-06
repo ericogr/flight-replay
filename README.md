@@ -8,8 +8,9 @@ wizard for Linux, Windows and macOS.
 
 ## What it does
 
-- **The OSD on the picture.** The glyphs of the `.osd` file are drawn with the font of your goggles, at any position,
-  with elements you can mask by clicking them. Fonts of 2 and 4 colours, 256 and 512 glyphs.
+- **The OSD on the picture.** The glyphs of the `.osd` file are drawn with a font that comes with the program (INAV,
+  Betaflight) or with the font file of your goggles, at any position, with elements you can mask by clicking them.
+  Fonts of 2 and 4 colours, 256 and 512 glyphs.
 - **The SRT data on the picture.** Signal, latency, bitrate, distance, battery and time, where you want them.
 - **A motor sound.** The telemetry is read from the OSD screens (throttle, current, battery voltage, and the speed,
   roll and pitch when the OSD shows them), and drives a synthesized motor, propeller and wind sound. Every parameter
@@ -55,8 +56,11 @@ winget install Gyan.FFmpeg   # Windows
 
 1. **Welcome.** It shows where FFmpeg was found and which encoders work. Choose the colour scheme.
 2. **Input.** Drop the video on the window, or choose it. The `.osd` and `.srt` with the same name next to it are
-   opened by themselves. Choose the OSD font file for your firmware: a `WS_..._24.png` sheet, such as
-   `WS_INAV_Europa_24.png`. Flight Replay does not include one.
+   opened by themselves. Choose the OSD font: one of the list ("Built in"), or the file for your firmware, a
+   `WS_..._24.png` sheet such as `WS_INAV_Europa_24.png`. The program carries the default font of INAV and a Betaflight
+   font, each for 720p and 1080p videos; the one that suits the video is used. The step warns when the font is for
+   another firmware than the `.osd` file. The fonts of the goggles' makers and of other designers are not included,
+   as their licenses do not allow it, so use the file for those. What you choose is remembered.
 3. **OSD.** Check the position on the preview, centre it, mask elements by clicking them, and correct the timing.
 4. **SRT data.** Choose the fields and where they go.
 5. **Motor sound.** See what the recording gives the sound, choose the kind of motor and propeller, change the
@@ -88,7 +92,9 @@ in [PLAN.md](PLAN.md). The formats are described in [docs/formats](docs/formats)
 
 Flight Replay is free software, licensed under the GNU General Public License, version 3 (GPL-3.0-only).
 See [LICENSE](LICENSE). The notices for the code it adapts from other projects are in [NOTICE](NOTICE), and those of
-the libraries it uses are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+the libraries it uses are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The OSD fonts that come with the program
+keep their own licenses (GPL-3.0 for the INAV font, CC BY-SA 4.0 for the Betaflight one): see
+[assets/osd-fonts/README.md](assets/osd-fonts/README.md).
 
 ## Disclaimer
 

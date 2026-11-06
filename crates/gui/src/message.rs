@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use flight_replay_core::ffmpeg::{EncoderInfo, Tools};
+use flight_replay_core::font::BundledFont;
 use flight_replay_core::render::{Event, Outcome};
 use flight_replay_core::telemetry::Recording;
 use iced::Point;
@@ -110,6 +111,8 @@ pub enum Message {
     FileChosen(FileKind, Option<PathBuf>),
     FileDropped(PathBuf),
     Clear(FileKind),
+    /// A font that comes with the program was chosen from the list.
+    UseBundledFont(&'static BundledFont),
     VideoLoaded(Result<Arc<LoadedVideo>, String>),
     OsdLoaded(Result<Arc<LoadedOsd>, String>),
     /// Choose another `.osd` file for a video made of several recordings.

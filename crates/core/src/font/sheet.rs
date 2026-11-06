@@ -39,6 +39,13 @@ impl FontSheet {
         Self::from_image(&image)
     }
 
+    /// Reads a PNG font sheet held in memory, such as one compiled into the program.
+    pub fn from_png(bytes: &[u8]) -> Result<Self, FontError> {
+        let image =
+            image::load_from_memory_with_format(bytes, image::ImageFormat::Png)?.into_rgba8();
+        Self::from_image(&image)
+    }
+
     /// Splits a font sheet image into glyphs.
     ///
     /// The glyphs are stored page by page: glyph `page * characters_per_page + character` is the character
@@ -150,5 +157,16 @@ mod tests {
     fn rejects_an_image_that_is_not_a_font() {
         let image = RgbaImage::new(10, 10);
         assert!(FontSheet::from_image(&image).is_err());
+    }
+
+    #[test]
+    fn reads_a_png_from_memory() {
+        let mut png = Vec::new();
+        synthetic_sheet()
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let sheet = FontSheet::from_png(&png).unwrap();
+        assert_eq!(sheet.layout().glyph_count(), 512);
+        assert!(FontSheet::from_png(b"not a png").is_err());
     }
 }

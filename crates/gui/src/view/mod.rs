@@ -3,7 +3,7 @@
 
 //! The views: the frame of the wizard and one module per step.
 
-mod input;
+pub mod input;
 mod output;
 mod overlay;
 mod preview_view;

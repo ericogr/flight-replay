@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use flight_replay_core::ffmpeg::{self, Tools};
-use flight_replay_core::font::FontSheet;
+use flight_replay_core::font::{BundledFont, FontSheet, OsdFont};
 use flight_replay_core::osd::{OsdFile, join};
 use flight_replay_core::paths::{file_name, folder_or_current, parent_folder};
 use flight_replay_core::render::{self, CancelToken, FlightDefaults, LeftOut, RenderPlan, Skipped};
@@ -20,7 +20,7 @@ use iced::Task;
 use crate::message::{Message, RenderMessage};
 use crate::preview::{self, PreviewRequest};
 use crate::state::{
-    FileKind, FolderQueue, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, QueueItem,
+    FileKind, FolderQueue, FontSource, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, QueueItem,
 };
 
 /// Runs `work` on its own thread and waits for it without blocking the interface.
@@ -116,8 +116,22 @@ pub fn load_font(path: PathBuf) -> Task<Message> {
         job(move || {
             let sheet = FontSheet::open(&path).map_err(|e| e.to_string())?;
             Ok(Arc::new(LoadedFont {
-                path,
-                sheet: Arc::new(sheet),
+                source: FontSource::File(path),
+                font: OsdFont::single(sheet),
+            }))
+        }),
+        Message::FontLoaded,
+    )
+}
+
+/// Reads a font that comes with the program.
+pub fn load_bundled_font(font: &'static BundledFont) -> Task<Message> {
+    Task::perform(
+        job(move || {
+            let loaded = font.load().map_err(|e| format!("{}: {e}", font.name))?;
+            Ok(Arc::new(LoadedFont {
+                source: FontSource::Bundled(font),
+                font: loaded,
             }))
         }),
         Message::FontLoaded,

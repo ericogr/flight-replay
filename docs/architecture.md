@@ -18,7 +18,7 @@ draw), it goes in the core, where a command line can use it too.
 |---|---|
 | `ffmpeg` | Finds `ffmpeg` and `ffprobe`, reads what `ffprobe` says about a video, lists the encoders and tries each with a one-frame encode, decodes raw RGBA frames over a pipe, and runs the encoder process. FFmpeg is only ever a separate program. |
 | `osd` | The `.osd` file (header, screens, firmware), the options for drawing it (position, masks), and `join`: several files of one video put on one timeline, with the coverage check. |
-| `font` | OSD font sheets: the layouts they come in, and the glyphs at the size of the video. |
+| `font` | OSD font sheets: the layouts they come in, and the glyphs at the size of the video. An `OsdFont` is one sheet (a file) or several (a font that comes with the program, compiled in from `assets/osd-fonts/`), and the sheet nearest to the video is the one drawn. |
 | `srt` | The SRT file the goggles record, and the data in each line. |
 | `overlay` | Draws the OSD and the SRT data on a frame, and the chroma-key background. |
 | `telemetry` | Reads the numbers out of the OSD screens. `decoder` and `inav` hold the rules and the glyph table; `table` and `series` put the readings on a timeline; `recording` ties them together; `probe` shows what the OSD says at a time; `profile` says what a firmware can give the sound. |

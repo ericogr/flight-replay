@@ -66,4 +66,27 @@ as their licenses require. Each adapted source file also carries a header that n
    License: SIL Open Font License, Version 1.1 (assets/fonts/AzeretMono-LICENSE.txt)
    The font is a data file used to draw the SRT text. It is not changed.
 
+5. INAV OSD font (assets/osd-fonts/inav/)
+   Copyright (C) the INAV Configurator contributors (Darren Lines "MrD-RC" and others)
+   License: GPL-3.0 (the LICENSE file)
+   https://github.com/iNavFlight/inav-configurator, resources/osd/digital/default, commit
+   95504dcea167685e2f9adb08f5f17d6ff1a7462f
+   The font sheets are data files used to draw the OSD, and are compiled into the program. The images are not
+   changed; they are arranged in one sheet with the HD OSD Font Tool (https://github.com/MrD-RC/hdosd-font-tool,
+   GPL-3.0).
+
+6. Material OSD font (assets/osd-fonts/betaflight/)
+   Created by Knifa, https://github.com/Knifa/material-osd, release v0.0.4
+   License: Creative Commons Attribution-ShareAlike 4.0 International
+   (https://creativecommons.org/licenses/by-sa/4.0/, text in assets/osd-fonts/licenses/CC-BY-SA-4.0.txt)
+   The font sheets are data files used to draw the OSD, and are compiled into the program. They are not changed;
+   the files were renamed. The license covers these files only, not the program.
+   They are made from:
+   - Material Design Icons, by Pictogrammers (https://pictogrammers.com/library/mdi/)
+     License: Apache License, Version 2.0 (assets/osd-fonts/licenses/Apache-2.0.txt)
+   - Bebas Neue, Copyright 2010 by Dharma Type
+     License: SIL Open Font License, Version 1.1 (assets/osd-fonts/licenses/BebasNeue-OFL.txt)
+
+How these files were made and the fonts that were left out for lack of a license are in assets/osd-fonts/README.md.
+
 Third-party crates used by Flight Replay are listed in THIRD_PARTY_NOTICES.md.

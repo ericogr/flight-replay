@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use flight_replay_core::ffmpeg::VideoInfo;
-use flight_replay_core::font::FontSheet;
+use flight_replay_core::font::{BundledFont, OsdFont};
 use flight_replay_core::osd::{JoinPart, OsdFile};
 use flight_replay_core::paths::file_name;
 use flight_replay_core::render::{CancelToken, Outcome, RenderPlan, Stage, Window};
@@ -60,11 +60,21 @@ pub struct LoadedSrt {
     pub file: Arc<SrtFile>,
 }
 
-/// An OSD font file that is open.
+/// Where an OSD font comes from.
+#[derive(Debug, Clone)]
+pub enum FontSource {
+    /// A file the user chose.
+    File(PathBuf),
+    /// A font that comes with the program.
+    Bundled(&'static BundledFont),
+}
+
+/// An OSD font that is open.
 #[derive(Debug)]
 pub struct LoadedFont {
-    pub path: PathBuf,
-    pub sheet: Arc<FontSheet>,
+    pub source: FontSource,
+    /// The sheet of a file, or the sheets of a font that comes with the program.
+    pub font: OsdFont,
 }
 
 /// The kinds of file the user picks.

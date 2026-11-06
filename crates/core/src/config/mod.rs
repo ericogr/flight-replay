@@ -75,6 +75,9 @@ pub struct Settings {
     pub ffmpeg_dir: Option<PathBuf>,
     /// The OSD font file that was used last.
     pub font_path: Option<PathBuf>,
+    /// The id of the font that comes with the program, when that was used last (see
+    /// [`crate::font::BUNDLED_FONTS`]). It and `font_path` are never both set.
+    pub bundled_font: Option<String>,
     /// Draw the OSD.
     pub draw_osd: bool,
     /// Draw the SRT data.
@@ -98,6 +101,7 @@ impl Default for Settings {
         Self {
             ffmpeg_dir: None,
             font_path: None,
+            bundled_font: None,
             draw_osd: true,
             draw_srt: false,
             make_sound: true,
@@ -218,6 +222,12 @@ mod tests {
             !path.with_extension("toml.tmp").exists(),
             "no temporary file is left"
         );
+
+        // A font that comes with the program is kept by its id.
+        settings.font_path = None;
+        settings.bundled_font = Some("inav-default".into());
+        save(&settings, &path).unwrap();
+        assert_eq!(load::<Settings>(&path).unwrap(), settings);
     }
 
     #[test]
@@ -234,6 +244,7 @@ mod tests {
         assert_eq!(settings.output.bitrate_mbps, 12);
         assert_eq!(settings.output.encoder, "libx264");
         assert!(settings.draw_osd);
+        assert_eq!(settings.bundled_font, None, "a file from before the key");
     }
 
     #[test]

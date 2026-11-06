@@ -54,7 +54,7 @@ impl FlightReplay {
                 .encoders
                 .as_ref()
                 .map_or_else(Vec::new, |list| list.to_vec()),
-            font: self.font.as_ref().map(|font| (*font.sheet).clone()),
+            font: self.font.as_ref().map(|font| font.font.clone()),
             // The speed of the OSD is worked out for each video. A manual scale belongs to the one that is open.
             sync: SyncOptions {
                 scale: ScaleMode::Auto,
