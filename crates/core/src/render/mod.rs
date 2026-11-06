@@ -15,4 +15,4 @@ pub use plan::{
     EncoderChoice, Mode, OsdLayer, OutputPlan, Overwrite, RenderPlan, ResolvedWindow, SrtLayer,
     VideoOutput, Window,
 };
-pub use run::{Outcome, OutputCheck, RenderError, render};
+pub use run::{Outcome, OutputCheck, RenderError, command_preview, render};

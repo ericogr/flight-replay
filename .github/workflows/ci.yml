@@ -23,6 +23,21 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install make --yes --no-progress
 
+      # ALSA headers for the sound preview (rodio), and FFmpeg for the tests that render.
+      - name: Install system packages (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libasound2-dev pkg-config ffmpeg
+
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --yes --no-progress
+
+      - uses: Swatinem/rust-cache@v2
+
       - name: Install cargo-deny
         uses: taiki-e/install-action@v2
         with:

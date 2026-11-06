@@ -608,13 +608,13 @@ phase that is not started yet are not blocked by anything else unless the text s
 
 **P7: GUI wizard**
 
-- [ ] Wizard state machine with unit tests
-- [ ] Step views 1 to 7
-- [ ] Settings persistence (`settings.toml`)
-- [ ] Frame preview in steps 3 and 4
-- [ ] Audio preview in step 5 (`rodio`)
-- [ ] Drag and drop
-- [ ] Light and dark themes
+- [x] Wizard state machine with unit tests
+- [x] Step views 1 to 7
+- [x] Settings persistence (`settings.toml`)
+- [x] Frame preview in steps 3 and 4
+- [ ] Audio preview in step 5 (`rodio`): the sound is rendered and the player is wired; nobody has listened to it yet
+- [ ] Drag and drop: the dropped files are handled and tested as messages; a real drop on the window is not tried yet
+- [x] Light and dark themes
 - [ ] Linux desktop entry and macOS app bundle metadata
 - [ ] Manual walk-through on Linux, Windows and macOS
 
@@ -690,3 +690,11 @@ These do not block P0. The defaults are used unless the owner changes them.
   rewritten, offset kept local). Video-picture privacy added as an owner decision. Task checklist added (section 11.1).
 - Revision 4, 2026-11-05: phase P0 done on Linux. Toolchain 1.99.1, MSRV 1.88. `deny.toml` with the license
   allow list and documented advisory exceptions. Window opens on Linux. Windows and macOS are checked by CI.
+- Revision 5, 2026-11-06: phase P7 built on Linux. Seven-step iced wizard, settings saved on every step change and on
+  close, frame preview (640 px wide, so the options of the step fit below it), light, dark and system themes. The
+  wizard is tested without a desktop: iced's headless simulator drives the real `update` and `view`, runs the tasks,
+  and the full walk-through renders the fixture clip (`crates/gui/src/tests.rs`; `FLIGHT_REPLAY_SNAPSHOTS=<folder>`
+  saves a picture of every step). Deviation from the plan: opening a new video starts over, with a notice, instead of
+  asking a question in a dialog. Typing into the real window could not be tried: the screen saver was covering the
+  window, and the session was left alone. Open: listening to the sound preview, a real drag and drop, and the manual
+  walk-through on the three systems.

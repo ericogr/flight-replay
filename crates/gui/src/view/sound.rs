@@ -1,0 +1,183 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 EricoGR
+
+use flight_replay_core::telemetry::{DEFAULT_PROBE_COLUMNS, probe_at};
+use iced::Element;
+use iced::Length;
+use iced::widget::{checkbox, column, pick_list, row, text, text_input};
+
+use super::preview_view::{preview_block, sync_block};
+use super::widgets::{action, clock, good, hint, labeled, page, problem, section, slider_row};
+use crate::app::FlightReplay;
+use crate::message::{Message, SoundEdit};
+use crate::sound_params::{self, Group};
+
+pub fn view(app: &FlightReplay) -> Element<'_, Message> {
+    let unavailable = app.sound_unavailable();
+    let can_make = app.osd.is_some() && unavailable.is_none();
+    let toggle = checkbox(app.settings.make_sound)
+        .label("Make the motor sound")
+        .on_toggle_maybe(can_make.then_some(Message::MakeSound));
+
+    let mut items = vec![toggle.into()];
+    if app.osd.is_none() {
+        items.push(hint(
+            "There is no .osd file. The sound follows the telemetry stored in it.",
+        ));
+    }
+    if let Some(reason) = unavailable {
+        items.push(problem(reason));
+    }
+    if app.osd.is_some() {
+        items.push(section("What the recording gives the sound", coverage(app)));
+        items.push(section("Preview of the sound", listen(app)));
+        items.push(section("Presets", presets(app)));
+        items.push(section("Audio format", format(app)));
+        for group in Group::ALL {
+            items.push(section(group.title(), parameters(app, group)));
+        }
+        items.push(sync_block(app));
+    }
+    page(items).into()
+}
+
+fn coverage(app: &FlightReplay) -> Element<'_, Message> {
+    if app.busy.telemetry {
+        return text("Reading the telemetry…").into();
+    }
+    let Some(telemetry) = &app.telemetry else {
+        return hint("No telemetry has been read.");
+    };
+    match &telemetry.signals {
+        Ok(signals) => {
+            let mut lines = column![good(signals.describe())].spacing(4);
+            for warning in &signals.warnings {
+                lines = lines.push(hint(format!("• {warning}")));
+            }
+            lines.into()
+        }
+        Err(error) if error.is_empty() => text("Checking the signals…").into(),
+        Err(error) => problem(error.clone()),
+    }
+}
+
+fn listen(app: &FlightReplay) -> Element<'_, Message> {
+    let can_play = app.signals().is_some() && !app.busy.audio && !app.audio_playing;
+    let controls = row![
+        action(
+            "Play 10 seconds from here",
+            can_play.then_some(Message::PlayAudio)
+        ),
+        action("Stop", app.audio_playing.then_some(Message::StopAudio)),
+        text(if app.busy.audio {
+            "Making the sound…"
+        } else if app.audio_playing {
+            "Playing…"
+        } else {
+            ""
+        }),
+    ]
+    .spacing(10);
+
+    let mut items = column![
+        hint("Choose the moment on the slider, then listen. The picture shows the same moment."),
+        preview_block(app, false),
+        controls,
+    ]
+    .spacing(10);
+    if let Some(error) = &app.audio_error {
+        items = items.push(problem(error.clone()));
+    }
+    if let (Some(telemetry), Some(timeline)) = (&app.telemetry, app.timeline()) {
+        let report = probe_at(
+            &telemetry.recording.table,
+            &timeline,
+            app.preview.time_s,
+            &DEFAULT_PROBE_COLUMNS,
+        );
+        items = items.push(hint(format!(
+            "The OSD at {} says: {}. Compare it with the picture to check the timing.",
+            clock(app.preview.time_s),
+            report.values_text()
+        )));
+    }
+    items.into()
+}
+
+fn presets(app: &FlightReplay) -> Element<'_, Message> {
+    let names: Vec<String> = app.settings.presets.keys().cloned().collect();
+    let has_saved = !names.is_empty();
+    column![
+        labeled(
+            "Saved presets",
+            pick_list(names, app.selected_preset.clone(), |name| Message::Sound(
+                SoundEdit::Preset(name)
+            ))
+            .placeholder(if has_saved {
+                "Choose a preset"
+            } else {
+                "No preset saved yet"
+            }),
+        ),
+        labeled(
+            "Name",
+            row![
+                text_input("A name for these settings", &app.preset_name)
+                    .on_input(|t| Message::Sound(SoundEdit::PresetName(t)))
+                    .width(Length::Fixed(260.0)),
+                action(
+                    "Save",
+                    (!app.preset_name.trim().is_empty())
+                        .then_some(Message::Sound(SoundEdit::SavePreset))
+                ),
+                action(
+                    "Delete",
+                    app.selected_preset
+                        .is_some()
+                        .then_some(Message::Sound(SoundEdit::DeletePreset))
+                ),
+            ]
+            .spacing(8),
+        ),
+        action(
+            "Back to the default settings",
+            Some(Message::Sound(SoundEdit::ResetToDefaults))
+        ),
+    ]
+    .spacing(8)
+    .into()
+}
+
+fn format(app: &FlightReplay) -> Element<'_, Message> {
+    let audio = &app.settings.sound.audio;
+    column![
+        labeled(
+            "Sample rate",
+            pick_list([44_100u32, 48_000], Some(audio.sample_rate), |r| {
+                Message::Sound(SoundEdit::SampleRate(r))
+            }),
+        ),
+        checkbox(audio.channels == 2)
+            .label("Stereo")
+            .on_toggle(|on| Message::Sound(SoundEdit::Stereo(on))),
+    ]
+    .spacing(8)
+    .into()
+}
+
+fn parameters(app: &FlightReplay, group: Group) -> Element<'_, Message> {
+    let mut lines = column![].spacing(6);
+    for spec in sound_params::SPECS.iter().filter(|s| s.group == group) {
+        let param = spec.param;
+        lines = lines.push(slider_row(
+            spec.label,
+            spec.unit,
+            sound_params::get(&app.settings.sound, param),
+            spec.min..=spec.max,
+            spec.step,
+            spec.help,
+            move |v| Message::Sound(SoundEdit::Param(param, v)),
+        ));
+    }
+    lines.into()
+}

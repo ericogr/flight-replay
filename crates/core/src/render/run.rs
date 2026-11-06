@@ -289,21 +289,7 @@ fn sound_only(
         window.start_s,
     )?;
     let total = frames_for(window.duration_s, settings.audio.sample_rate) as u64;
-    let job = EncodeJob {
-        video: VideoInput::Copy {
-            path: plan.video.clone(),
-            start_s: window.start_s,
-        },
-        audio: AudioInput::PcmStdin {
-            sample_rate: settings.audio.sample_rate,
-            channels: settings.audio.channels,
-        },
-        encoding: None,
-        audio_bitrate_kbps: plan.output.audio_bitrate_kbps,
-        faststart: plan.output.faststart,
-        duration_s: Some(window.duration_s),
-        output: plan.output.path.clone(),
-    };
+    let job = sound_only_job(plan, window, settings);
     let mut process = EncodeProcess::spawn(tools, &job)?;
     reporter.stage(Stage::Audio);
     let mut done = 0;
@@ -320,6 +306,89 @@ fn sound_only(
     reporter.stage(Stage::Finishing);
     process.finish()?;
     Ok(engine.stats())
+}
+
+/// The FFmpeg job of a render that only adds sound: the video is copied and the sound comes on standard input.
+fn sound_only_job(
+    plan: &RenderPlan,
+    window: ResolvedWindow,
+    settings: &SoundSettings,
+) -> EncodeJob {
+    EncodeJob {
+        video: VideoInput::Copy {
+            path: plan.video.clone(),
+            start_s: window.start_s,
+        },
+        audio: AudioInput::PcmStdin {
+            sample_rate: settings.audio.sample_rate,
+            channels: settings.audio.channels,
+        },
+        encoding: None,
+        audio_bitrate_kbps: plan.output.audio_bitrate_kbps,
+        faststart: plan.output.faststart,
+        duration_s: Some(window.duration_s),
+        output: plan.output.path.clone(),
+    }
+}
+
+/// The FFmpeg job of a render that draws on the picture: raw frames on standard input, and the sound from a WAV file.
+fn overlay_job(plan: &RenderPlan, window: ResolvedWindow, audio: AudioInput) -> EncodeJob {
+    let VideoOutput::Encode(choice) = &plan.output.video else {
+        unreachable!("validate: drawing needs an encoder");
+    };
+    EncodeJob {
+        video: VideoInput::Raw {
+            width: plan.info.width,
+            height: plan.info.height,
+            frame_rate: plan.info.nominal_frame_rate,
+        },
+        audio,
+        encoding: Some(VideoEncoding {
+            encoder: choice.name.clone(),
+            bitrate_mbps: choice.bitrate_mbps,
+            extra_args: choice.extra_args.clone(),
+            upscale_1440p: choice.upscale_1440p,
+        }),
+        audio_bitrate_kbps: plan.output.audio_bitrate_kbps,
+        faststart: plan.output.faststart,
+        duration_s: Some(window.duration_s),
+        output: plan.output.path.clone(),
+    }
+}
+
+/// The FFmpeg command lines a render would run, for showing to the user before it starts. The sound is made by
+/// Flight Replay itself and is not a command.
+#[must_use]
+pub fn command_preview(plan: &RenderPlan, ffmpeg: &Path) -> Vec<String> {
+    let window = plan.resolved_window();
+    match plan.mode() {
+        Mode::SoundOnly => {
+            let settings = plan.sound.clone().unwrap_or_default();
+            vec![sound_only_job(plan, window, &settings).command_line(ffmpeg)]
+        }
+        Mode::Overlay => {
+            let audio = if plan.sound.is_some() {
+                AudioInput::WavFile {
+                    path: temp_wav_path(&plan.output.path),
+                }
+            } else {
+                AudioInput::None
+            };
+            let decode = DecodeOptions {
+                width: plan.info.width,
+                height: plan.info.height,
+                start_s: window.start_s,
+                duration_s: Some(window.duration_s),
+                constant_rate: Some(plan.info.nominal_frame_rate),
+            };
+            let mut lines = Vec::new();
+            if plan.chroma_key.is_none() {
+                lines.push(FrameReader::command_line(ffmpeg, &plan.video, &decode));
+            }
+            lines.push(overlay_job(plan, window, audio).command_line(ffmpeg));
+            lines
+        }
+    }
 }
 
 /// A file that is removed when it goes out of scope.
@@ -387,9 +456,6 @@ fn overlay(
     cancel: &CancelToken,
     reporter: &mut Reporter<'_>,
 ) -> Result<(PathBuf, Option<RenderStats>), RenderError> {
-    let VideoOutput::Encode(choice) = &plan.output.video else {
-        unreachable!("validate: drawing needs an encoder");
-    };
     let info = &plan.info;
     let rate = info.nominal_frame_rate;
     let total = (window.duration_s * rate).round().max(1.0) as u64;
@@ -417,24 +483,7 @@ fn overlay(
         None => (AudioInput::None, None),
     };
 
-    let job = EncodeJob {
-        video: VideoInput::Raw {
-            width: info.width,
-            height: info.height,
-            frame_rate: rate,
-        },
-        audio,
-        encoding: Some(VideoEncoding {
-            encoder: choice.name.clone(),
-            bitrate_mbps: choice.bitrate_mbps,
-            extra_args: choice.extra_args.clone(),
-            upscale_1440p: choice.upscale_1440p,
-        }),
-        audio_bitrate_kbps: plan.output.audio_bitrate_kbps,
-        faststart: plan.output.faststart,
-        duration_s: Some(window.duration_s),
-        output: plan.output.path.clone(),
-    };
+    let job = overlay_job(plan, window, audio);
     let mut process = EncodeProcess::spawn(tools, &job)?;
     // Frames at a constant rate: a gap in the video repeats the previous frame, so frame n is at time n / rate.
     let mut reader = match plan.chroma_key {

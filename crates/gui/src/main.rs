@@ -10,22 +10,37 @@
 )]
 
 mod app;
+mod audio;
+mod message;
+mod preview;
+mod sound_params;
+mod state;
+mod tasks;
+mod view;
+mod wizard;
+
+#[cfg(test)]
+mod tests;
 
 use tracing_subscriber::EnvFilter;
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
         )
         .init();
 
     iced::application(
-        app::FlightReplay::default,
+        app::FlightReplay::boot,
         app::FlightReplay::update,
-        app::FlightReplay::view,
+        view::view,
     )
-    .title(app::FlightReplay::title)
+    .title(flight_replay_core::APP_NAME)
+    .theme(app::FlightReplay::theme)
+    .subscription(|_: &app::FlightReplay| app::FlightReplay::subscription())
+    .window_size((1100.0, 820.0))
+    .exit_on_close_request(false)
     .run()?;
     Ok(())
 }

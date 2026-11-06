@@ -11,6 +11,8 @@
 
 pub mod assets;
 pub mod audio;
+pub mod config;
+pub mod discover;
 pub mod ffmpeg;
 pub mod font;
 pub mod osd;

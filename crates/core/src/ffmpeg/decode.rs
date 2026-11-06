@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 EricoGR
 
+use std::ffi::OsString;
 use std::io::{BufReader, Read};
 use std::path::Path;
 use std::process::{Child, ChildStdout, Stdio};
@@ -54,26 +55,47 @@ impl DecodeOptions {
 }
 
 impl FrameReader {
+    /// The FFmpeg arguments that decode `input` as `options` says.
+    fn args(input: &Path, options: &DecodeOptions) -> Vec<OsString> {
+        let mut args: Vec<OsString> = ["-hide_banner", "-loglevel", "error", "-nostdin"]
+            .map(OsString::from)
+            .to_vec();
+        if options.start_s > 0.0 {
+            args.push("-ss".into());
+            args.push(format!("{:.6}", options.start_s).into());
+        }
+        args.push("-i".into());
+        args.push(input.as_os_str().to_owned());
+        if let Some(duration) = options.duration_s {
+            args.push("-t".into());
+            args.push(format!("{duration:.6}").into());
+        }
+        if let Some(rate) = options.constant_rate {
+            args.push("-vf".into());
+            args.push(format!("fps={rate:.6}").into());
+        }
+        args.extend(
+            [
+                "-map", "0:v:0", "-an", "-sn", "-dn", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
+            ]
+            .map(OsString::from),
+        );
+        args
+    }
+
+    /// The command line that decodes `input`, for showing to the user.
+    #[must_use]
+    pub fn command_line(ffmpeg: &Path, input: &Path, options: &DecodeOptions) -> String {
+        super::quote_command(ffmpeg, &Self::args(input, options))
+    }
+
     /// Starts decoding `input`.
     ///
     /// The width and height are the picture size reported by [`super::probe`].
     pub fn open(tools: &Tools, input: &Path, options: &DecodeOptions) -> Result<Self, FfmpegError> {
         let mut command = command(tools.ffmpeg());
-        command.args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
-        if options.start_s > 0.0 {
-            command.arg("-ss").arg(format!("{:.6}", options.start_s));
-        }
-        command.arg("-i").arg(input);
-        if let Some(duration) = options.duration_s {
-            command.arg("-t").arg(format!("{duration:.6}"));
-        }
-        if let Some(rate) = options.constant_rate {
-            command.arg("-vf").arg(format!("fps={rate:.6}"));
-        }
         command
-            .args([
-                "-map", "0:v:0", "-an", "-sn", "-dn", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
-            ])
+            .args(Self::args(input, options))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

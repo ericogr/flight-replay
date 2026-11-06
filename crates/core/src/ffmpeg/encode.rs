@@ -123,6 +123,13 @@ impl EncodeJob {
         Ok(())
     }
 
+    /// The command line of the job, for showing to the user. The output is the `.partial` file, which is renamed when
+    /// FFmpeg succeeds.
+    #[must_use]
+    pub fn command_line(&self, ffmpeg: &Path) -> String {
+        super::quote_command(ffmpeg, &self.args(&self.partial_path()))
+    }
+
     /// Whether the job reads from the encoder's standard input.
     #[must_use]
     pub fn uses_stdin(&self) -> bool {

@@ -10,10 +10,20 @@ publish = false
 
 [dependencies]
 flight-replay-core.workspace = true
+ab_glyph.workspace = true
 anyhow.workspace = true
 iced.workspace = true
+image.workspace = true
+opener.workspace = true
+rfd.workspace = true
+rodio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+iced_runtime = "0.14.0"
+iced_test = "0.14.0"
+tempfile.workspace = true

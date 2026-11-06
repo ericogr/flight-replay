@@ -23,3 +23,39 @@ pub use error::FfmpegError;
 pub use probe::{VideoInfo, parse_probe_json, probe};
 pub use progress::{Progress, parse_progress_line};
 pub use tools::Tools;
+
+/// Writes a command line for showing to the user: arguments with unusual characters are single-quoted, as a shell
+/// would need.
+pub(crate) fn quote_command(program: &std::path::Path, args: &[std::ffi::OsString]) -> String {
+    std::iter::once(program.as_os_str())
+        .chain(args.iter().map(std::ffi::OsString::as_os_str))
+        .map(|arg| quote(&arg.to_string_lossy()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn quote(arg: &str) -> String {
+    let plain = !arg.is_empty()
+        && arg.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || matches!(c, '_' | '@' | '%' | '+' | '=' | ':' | ',' | '.' | '/' | '-')
+        });
+    if plain {
+        arg.to_owned()
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quotes_only_what_a_shell_would_need() {
+        assert_eq!(quote("-c:v"), "-c:v");
+        assert_eq!(quote("my file.mp4"), "'my file.mp4'");
+        assert_eq!(quote("it's"), "'it'\\''s'");
+        assert_eq!(quote(""), "''");
+    }
+}
