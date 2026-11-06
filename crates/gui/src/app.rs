@@ -169,6 +169,8 @@ impl FlightReplay {
             .nth(1)
             .map(PathBuf::from)
             .filter(|p| p.is_file())
+            // The settings and the output name keep this path, so it must not depend on the folder we run from.
+            .map(|p| std::path::absolute(&p).unwrap_or(p))
     }
 
     /// The colour scheme.

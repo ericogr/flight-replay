@@ -612,8 +612,8 @@ phase that is not started yet are not blocked by anything else unless the text s
 - [x] Step views 1 to 7
 - [x] Settings persistence (`settings.toml`)
 - [x] Frame preview in steps 3 and 4
-- [ ] Audio preview in step 5 (`rodio`): the sound is rendered and the player is wired; nobody has listened to it yet
-- [ ] Drag and drop: the dropped files are handled and tested as messages; a real drop on the window is not tried yet
+- [x] Audio preview in step 5 (`rodio`): checked on Linux in the real window: the player shows "Playing…" and PipeWire has a `flight-replay` playback stream; nobody has listened to it yet
+- [x] Drag and drop: checked on Linux (X11) by dragging a file from Thunar onto the window
 - [x] Light and dark themes
 - [x] Linux desktop entry and macOS app bundle metadata
 - [ ] Manual walk-through on Linux, Windows and macOS
@@ -713,3 +713,9 @@ These do not block P0. The defaults are used unless the owner changes them.
   resource, Linux icons, macOS bundle). FFmpeg is not bundled (D6). The Windows and macOS packages, the release
   workflow and the tag `v0.1.0` wait for a remote and a CI run: they cannot be checked from this machine, and a tag
   pushed would publish a release.
+- Revision 8, 2026-11-06: the real window was walked through on Linux (XFCE, X11, build `release`) with synthetic
+  mouse and keyboard input. Checked: all seven steps, the preview with the real INAV font, the time slider, mask
+  clicking on the OSD grid, light and dark themes, a render (libx264 and AAC, 180 frames, OSD burned in), the sound
+  preview, a drag and drop from Thunar, and saving the settings when the window is closed. One bug found and fixed: a
+  video given on the command line as a relative path left relative paths in the settings and in the output name.
+  Still unchecked: listening to the sound, and everything on Windows and macOS (the manual walk-through item of P7).
