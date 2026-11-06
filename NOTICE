@@ -1,0 +1,30 @@
+Flight Replay
+Copyright (C) 2026 EricoGR
+
+Flight Replay is free software, licensed under the GNU General Public License, version 3 (see LICENSE).
+
+Flight Replay includes or adapts code from the following works. Their copyright and license notices are kept
+here, as their licenses require. Entries are added when the code is ported; the status line says what is in
+the tree today.
+
+1. walksnail-osd-tool
+   Copyright (C) Alexander van Saase
+   License: GPL-3.0-only
+   https://github.com/avsaase/walksnail-osd-tool
+   Status: planned (ports of the backend in phases P1 to P3). Not yet in the tree.
+
+2. fpv-motorsound
+   Copyright 2026 EricoGR
+   License: Apache License, Version 2.0
+   https://github.com/ericogr/fpv-motorsound
+   Status: planned (ports of the telemetry, synthesis and render pipeline in phases P4 to P6). Not yet in the tree.
+   The Apache-2.0 notice of this project is reproduced here when its code is ported.
+
+3. fpv-osd-decoder
+   Copyright (c) 2026 EricoGR
+   License: MIT
+   https://github.com/ericogr/fpv-osd-decoder
+   Status: planned (INAV glyph table and telemetry rules, phase P4). Not yet in the tree.
+   The MIT copyright and permission notice of this project is reproduced here when its code is ported.
+
+Third-party crates used by Flight Replay are listed in THIRD_PARTY_NOTICES.md.

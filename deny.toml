@@ -1,0 +1,51 @@
+# cargo-deny policy. Run with `make deny`.
+#
+# Flight Replay is GPL-3.0-only, so every dependency must be compatible with that license.
+# A license that is not in the allow list fails the check.
+
+[graph]
+all-features = true
+
+[advisories]
+# Unmaintained crates reached through iced 0.14. They are not vulnerabilities, and no safe upgrade exists yet.
+# Each entry is reviewed when iced is updated. Remove an entry once its crate is no longer in the tree.
+ignore = [
+    { id = "RUSTSEC-2024-0436", reason = "paste: unmaintained, transitive via wgpu/metal (iced 0.14) on macOS; no safe upgrade" },
+    { id = "RUSTSEC-2026-0441", reason = "pin-utils: unmaintained, transitive via iced_futures/wasmtimer (iced 0.14); no safe upgrade" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser: unmaintained, transitive via iced_wgpu (iced 0.14); no safe upgrade" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant: unmaintained, transitive via iced_winit -> mundy -> zbus (iced 0.14); no safe upgrade" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names: unmaintained, transitive via iced_winit -> zbus (iced 0.14); no safe upgrade" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: unmaintained, transitive via iced_winit -> zbus (iced 0.14); no safe upgrade" },
+]
+
+[licenses]
+allow = [
+    "GPL-3.0-only",
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "0BSD",
+    "MIT-0",
+    "MPL-2.0",
+    "LGPL-2.1-or-later",
+    "LGPL-3.0-or-later",
+]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

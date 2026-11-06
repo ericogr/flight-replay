@@ -1,0 +1,16 @@
+# Build output
+/target/
+/dist/
+
+# Local data: raw recordings and private settings, never committed
+/local/
+
+# Temporary files produced by renders
+*.partial
+*.tmp.wav
+
+# Editor and operating system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

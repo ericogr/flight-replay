@@ -1,0 +1,12 @@
+[package]
+name = "flight-replay-core"
+description = "Core library of Flight Replay: OSD, SRT overlay, telemetry, sound synthesis and rendering. It has no GUI dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
