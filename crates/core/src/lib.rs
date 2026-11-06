@@ -9,7 +9,13 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod assets;
 pub mod ffmpeg;
+pub mod font;
+pub mod osd;
+pub mod overlay;
+pub mod srt;
+pub mod timeline;
 
 /// Product name, as shown to the user.
 pub const APP_NAME: &str = "Flight Replay";

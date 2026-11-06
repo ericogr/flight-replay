@@ -239,10 +239,14 @@ audio step from fpv-motorsound is added to it.
 ### 5.4 Timeline and synchronisation
 
 - One function maps video time to an OSD frame index (overlay) and to a telemetry time (sound).
-- Telemetry time: `t_tel = (t_video - offset) / scale`. Automatic scale:
-  `scale = video_duration / (nb_frames / 60)`, because the OSD is stamped as if it were 60 fps.
-- Overlay: the OSD frame is chosen with the same 60 fps stamp. The optional playback-speed correction from
-  walksnail-osd-tool applies here.
+- Telemetry time: `t_tel = (t_video - offset) / scale`. Automatic scale: `scale = video_duration / osd_duration`,
+  where `osd_duration` is the duration of the `.osd` recording (last screen plus one average interval). This is
+  walksnail-osd-tool's method. fpv-motorsound uses `nb_frames / 60` instead. Both agree within 0.02 % on its
+  sample flights, but on a raw goggle recording (AvatarG0153) the frame-count method is 5 % off: the OSD is
+  stamped in real time there, so the OSD duration is the right one. The decision is recorded in
+  `crates/core/src/timeline.rs`.
+- Overlay: the OSD screen is the last one recorded at or before the telemetry time. The option to turn the
+  correction off (walksnail-osd-tool's "adjust playback speed") is `ScaleMode::Off`.
 - Acceptance: on the sample flights, the flight timer on the video and the telemetry agree at several points.
   This covers both features at once and catches any disagreement between them.
 
@@ -544,23 +548,23 @@ phase that is not started yet are not blocked by anything else unless the text s
 
 **P2: OSD, font and overlay**
 
-- [ ] Merge the `.osd` parsers (walksnail `osd/` and fpv-motorsound `internal/osd`) into one
-- [ ] Read the firmware field (`INAV`, `BTFL`, others) and select the profile
-- [ ] Port the font module (256 and 512 glyphs, 2-colour and 4-colour)
-- [ ] Port the overlay compositor
-- [ ] Masks, position, centring and latency correction
-- [ ] Frame preview in the core (the GUI comes in P7)
+- [x] Merge the `.osd` parsers (walksnail `osd/` and fpv-motorsound `internal/osd`) into one
+- [ ] Select the telemetry profile from the firmware field (the field is read in the parser)
+- [x] Port the font module (256 and 512 glyphs, 2-colour and 4-colour)
+- [x] Port the overlay compositor
+- [x] Masks, position, centring and latency correction
+- [x] Frame preview in the core (the GUI comes in P7)
 - [ ] Golden tests for the overlay
 - [ ] Visual comparison with walksnail-osd-tool, same settings
-- [ ] Upgrade `image` to 0.25 and check that the output does not change
+- [ ] Upgrade `image` to 0.25 and check that the output does not change (checked by eye only so far)
 
 **P3: SRT**
 
-- [ ] Port the walksnail `srt` module
-- [ ] Check the maintenance of `srtparse`, and keep it or replace it
-- [ ] Field selection
-- [ ] Text rendering with `ab_glyph` (replaces `rusttype`)
-- [ ] Position and size
+- [x] Port the walksnail `srt` module
+- [x] Check the maintenance of `srtparse`, and keep it or replace it (replaced: a small parser in the project)
+- [x] Field selection
+- [x] Text rendering with `ab_glyph` (replaces `rusttype`)
+- [x] Position and size
 - [ ] Golden tests
 - [ ] Fields match walksnail-osd-tool on the fixture
 
