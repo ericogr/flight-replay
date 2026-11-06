@@ -5,5 +5,5 @@ msrv = "1.88"
 doc-valid-idents = [
     "AAC", "AMF", "CRSF", "ESC", "FFmpeg", "FFprobe", "GPS", "H.264", "H.265", "HEVC", "INAV", "MD5", "MP4",
     "NVENC", "OSD", "PCM", "QSV", "RGBA", "SRT", "VAAPI", "VideoToolbox", "WAV", "YUV", "iced", "IMU", "RSSI",
-    "SNR", "ffmpeg", "ffprobe", "AVC", "HDR", "DPI", "ArduPilot", "Betaflight", "KISS",
+    "SNR", "ffmpeg", "ffprobe", "AVC", "HDR", "DPI", "ArduPilot", "Betaflight", "KISS", "NaN", "NaNs",
 ]

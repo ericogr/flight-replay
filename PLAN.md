@@ -549,7 +549,7 @@ phase that is not started yet are not blocked by anything else unless the text s
 **P2: OSD, font and overlay**
 
 - [x] Merge the `.osd` parsers (walksnail `osd/` and fpv-motorsound `internal/osd`) into one
-- [ ] Select the telemetry profile from the firmware field (the field is read in the parser)
+- [x] Select the telemetry profile from the firmware field (the field is read in the parser)
 - [x] Port the font module (256 and 512 glyphs, 2-colour and 4-colour)
 - [x] Port the overlay compositor
 - [x] Masks, position, centring and latency correction
@@ -570,13 +570,13 @@ phase that is not started yet are not blocked by anything else unless the text s
 
 **P4: INAV telemetry and timeline**
 
-- [ ] Generate the Rust INAV glyph table from fpv-osd-decoder's `symbols_gen.go`
-- [ ] Port the INAV rules for the eight sound signals
-- [ ] Port the telemetry series, holds and coverage
-- [ ] Implement the automatic time scale, the offset and the shared `timeline` module
-- [ ] Values match the reference CSV of AvatarG0031 (full flight)
-- [ ] Summary matches `motorsound --dry-run -v`
-- [ ] Probe mode matches `motorsound probe`
+- [x] Port the INAV glyph table (from fpv-motorsound's `symbols.go`, which comes from fpv-osd-decoder)
+- [x] Port the INAV rules for the eight sound signals
+- [x] Port the telemetry series, holds and coverage
+- [x] Implement the automatic time scale, the offset and the shared `timeline` module
+- [x] Values match the reference CSV of AvatarG0031 (full flight)
+- [x] Summary matches `motorsound --dry-run -v`
+- [x] Probe mode matches `motorsound probe`
 
 **P4b: Betaflight telemetry (blocked on recordings)**
 

@@ -13,6 +13,7 @@ authors = ["EricoGR"]
 flight-replay-core = { path = "crates/core" }
 iced = "0.14"
 ab_glyph = "0.2"
+regex = "1"
 anyhow = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }

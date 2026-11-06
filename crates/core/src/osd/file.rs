@@ -38,6 +38,13 @@ impl Frame {
         self.cells[(y * self.columns + x) as usize]
     }
 
+    /// The cells of row `y`.
+    #[must_use]
+    pub fn row(&self, y: u32) -> &[u16] {
+        let start = (y * self.columns) as usize;
+        &self.cells[start..start + self.columns as usize]
+    }
+
     /// Cells that hold a glyph to draw: `(column, row, code)`. Blank cells (code 0 and space) are skipped.
     pub fn glyphs(&self) -> impl Iterator<Item = (u32, u32, u16)> + '_ {
         let columns = self.columns;

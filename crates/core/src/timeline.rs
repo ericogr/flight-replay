@@ -94,6 +94,132 @@ impl Timeline {
     pub fn video_time(&self, telemetry_time_s: f64) -> f64 {
         telemetry_time_s * self.scale + self.offset_s
     }
+
+    /// How much the mapped telemetry falls short of (positive) or overruns (negative) the video: the video duration
+    /// minus the video time of the last telemetry frame.
+    #[must_use]
+    pub fn coverage_delta(&self, video_duration_s: f64, telemetry_end_s: f64) -> f64 {
+        video_duration_s - self.video_time(telemetry_end_s)
+    }
+
+    /// Checks that the mapped telemetry spans the video, and that the scale is plausible. Returns what is worth
+    /// telling the user. `telemetry_end_s` is the time of the last OSD frame.
+    #[must_use]
+    pub fn check(
+        &self,
+        video_duration_s: f64,
+        telemetry_end_s: f64,
+        tolerance: SyncTolerance,
+    ) -> Vec<SyncWarning> {
+        let mut warnings = Vec::new();
+        if !(0.8..=1.25).contains(&self.scale) {
+            warnings.push(SyncWarning::ImplausibleScale { scale: self.scale });
+        }
+        let delta = self.coverage_delta(video_duration_s, telemetry_end_s);
+        let allowed = tolerance
+            .min_seconds
+            .max(video_duration_s * tolerance.percent / 100.0);
+        if delta.abs() > allowed && telemetry_end_s > 0.0 {
+            let mapped_end = self.video_time(telemetry_end_s);
+            let suggested_scale = video_duration_s / telemetry_end_s;
+            warnings.push(if delta > 0.0 {
+                SyncWarning::TelemetryEndsEarly {
+                    seconds: delta,
+                    mapped_end,
+                    video_duration: video_duration_s,
+                    suggested_scale,
+                }
+            } else {
+                SyncWarning::TelemetryRunsPast {
+                    seconds: -delta,
+                    mapped_end,
+                    video_duration: video_duration_s,
+                    suggested_scale,
+                }
+            });
+        }
+        warnings
+    }
+}
+
+/// How far the mapped telemetry may differ from the end of the video before [`Timeline::check`] warns: the larger
+/// of a percentage of the video and a number of seconds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SyncTolerance {
+    /// Percent of the video duration.
+    pub percent: f64,
+    /// Seconds.
+    pub min_seconds: f64,
+}
+
+impl Default for SyncTolerance {
+    fn default() -> Self {
+        Self {
+            percent: 0.1,
+            min_seconds: 2.0,
+        }
+    }
+}
+
+/// Something the user should know about the synchronisation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SyncWarning {
+    /// The scale is far from 1, so the video and the OSD probably do not belong together.
+    ImplausibleScale {
+        /// The scale.
+        scale: f64,
+    },
+    /// The mapped telemetry ends before the video does.
+    TelemetryEndsEarly {
+        /// How many seconds before.
+        seconds: f64,
+        /// Video time of the last telemetry frame.
+        mapped_end: f64,
+        /// Length of the video.
+        video_duration: f64,
+        /// The scale that would make the telemetry cover the whole video.
+        suggested_scale: f64,
+    },
+    /// The mapped telemetry runs past the end of the video.
+    TelemetryRunsPast {
+        /// How many seconds past.
+        seconds: f64,
+        /// Video time of the last telemetry frame.
+        mapped_end: f64,
+        /// Length of the video.
+        video_duration: f64,
+        /// The scale that would make the telemetry cover the whole video.
+        suggested_scale: f64,
+    },
+}
+
+impl std::fmt::Display for SyncWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ImplausibleScale { scale } => write!(
+                f,
+                "the time scale {scale:.4} is unlikely (expected close to 1.00): check that the video and the .osd are from the same flight"
+            ),
+            Self::TelemetryEndsEarly {
+                seconds,
+                mapped_end,
+                video_duration,
+                suggested_scale,
+            } => write!(
+                f,
+                "the mapped telemetry ends {seconds:.1} s before the end of the video (it ends at {mapped_end:.1} s, the video is {video_duration:.1} s long). If it covers the whole video, the scale would be {suggested_scale:.6}"
+            ),
+            Self::TelemetryRunsPast {
+                seconds,
+                mapped_end,
+                video_duration,
+                suggested_scale,
+            } => write!(
+                f,
+                "the mapped telemetry runs {seconds:.1} s past the end of the video (it ends at {mapped_end:.1} s, the video is {video_duration:.1} s long). If it covers the whole video, the scale would be {suggested_scale:.6}"
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -132,6 +258,47 @@ mod tests {
             offset_s: 0.0,
         };
         assert!((Timeline::new(broken, 10.0, 10.0).scale() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn warns_when_the_telemetry_does_not_span_the_video() {
+        // Go's frame-count model on a raw recording: scale 1.051186 puts the telemetry 43 s past the video.
+        let wrong = Timeline::new(
+            SyncOptions {
+                scale: ScaleMode::Manual { scale: 1.051_186 },
+                offset_s: 0.0,
+            },
+            846.1,
+            845.893,
+        );
+        let warnings = wrong.check(846.1, 845.893, SyncTolerance::default());
+        assert!(matches!(
+            warnings.as_slice(),
+            [SyncWarning::TelemetryRunsPast { seconds, .. }] if (*seconds - 43.1).abs() < 0.1
+        ));
+        // The OSD-duration scale leaves only about one OSD frame (0.157 s) uncovered, so there is no warning.
+        let right = Timeline::new(SyncOptions::default(), 846.1, 846.05);
+        assert_eq!(
+            right.check(846.1, 845.893, SyncTolerance::default()),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn warns_about_an_implausible_scale() {
+        let odd = Timeline::new(
+            SyncOptions {
+                scale: ScaleMode::Manual { scale: 2.0 },
+                offset_s: 0.0,
+            },
+            100.0,
+            50.0,
+        );
+        assert!(
+            odd.check(100.0, 50.0, SyncTolerance::default())
+                .iter()
+                .any(|w| matches!(w, SyncWarning::ImplausibleScale { .. }))
+        );
     }
 
     #[test]

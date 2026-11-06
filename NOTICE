@@ -3,28 +3,67 @@ Copyright (C) 2026 EricoGR
 
 Flight Replay is free software, licensed under the GNU General Public License, version 3 (see LICENSE).
 
-Flight Replay includes or adapts code from the following works. Their copyright and license notices are kept
-here, as their licenses require. Entries are added when the code is ported; the status line says what is in
-the tree today.
+Flight Replay includes code adapted from the following works. Their copyright and license notices are kept here,
+as their licenses require. Each adapted source file also carries a header that names its origin.
 
 1. walksnail-osd-tool
    Copyright (C) Alexander van Saase
    License: GPL-3.0-only
    https://github.com/avsaase/walksnail-osd-tool
-   Status: planned (ports of the backend in phases P1 to P3). Not yet in the tree.
+   In the tree: the encoder list, the font sheet layout and loading, the OSD options and centring, the OSD
+   and SRT drawing, and the SRT options and data fields. Changed for Flight Replay.
 
 2. fpv-motorsound
    Copyright 2026 EricoGR
-   License: Apache License, Version 2.0
+   License: Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
    https://github.com/ericogr/fpv-motorsound
-   Status: planned (ports of the telemetry, synthesis and render pipeline in phases P4 to P6). Not yet in the tree.
-   The Apache-2.0 notice of this project is reproduced here when its code is ported.
+   In the tree: the telemetry decoder and its rules, the time series and table, the loading of the `.osd`
+   telemetry, the probe, the synchronisation checks and the stream-copy mux. Changed for Flight Replay (ported
+   from Go to Rust).
+
+   The NOTICE file of fpv-motorsound says:
+
+     motorsound
+     Copyright 2026 EricoGR
+     https://github.com/ericogr/fpv-motorsound
+
+     This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+     This product includes software from the following projects. Their copyright and license notices are
+     reproduced in THIRD_PARTY_NOTICES.md:
+
+     - fpv-osd-decoder, Copyright (c) 2026 EricoGR, MIT License
+       (https://github.com/ericogr/fpv-osd-decoder): the .osd decoding in internal/osd, internal/inav
+       and internal/osddecode.
 
 3. fpv-osd-decoder
    Copyright (c) 2026 EricoGR
    License: MIT
    https://github.com/ericogr/fpv-osd-decoder
-   Status: planned (INAV glyph table and telemetry rules, phase P4). Not yet in the tree.
-   The MIT copyright and permission notice of this project is reproduced here when its code is ported.
+   In the tree: the INAV glyph table and the telemetry rules (through fpv-motorsound).
+
+   MIT License
+
+   Copyright (c) 2026 EricoGR
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+   documentation files (the "Software"), to deal in the Software without restriction, including without
+   limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+   Software, and to permit persons to whom the Software is furnished to do so, subject to the following
+   conditions:
+
+   The above copyright notice and this permission notice shall be included in all copies or substantial portions
+   of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+   TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+   CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+4. Azeret Mono (assets/fonts/AzeretMono-Regular.ttf)
+   Copyright 2021 The Azeret Project Authors (https://github.com/displaay/azeret)
+   License: SIL Open Font License, Version 1.1 (assets/fonts/AzeretMono-LICENSE.txt)
+   The font is a data file used to draw the SRT text. It is not changed.
 
 Third-party crates used by Flight Replay are listed in THIRD_PARTY_NOTICES.md.

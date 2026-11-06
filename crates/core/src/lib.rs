@@ -15,6 +15,7 @@ pub mod font;
 pub mod osd;
 pub mod overlay;
 pub mod srt;
+pub mod telemetry;
 pub mod timeline;
 
 /// Product name, as shown to the user.
