@@ -514,8 +514,8 @@ phase that is not started yet are not blocked by anything else unless the text s
 **Fixtures (clips from P1; the `.osd` parts need P2 and P4)**
 
 - [ ] Create `local/` (git-ignored) for the raw recordings and the anonymization offset
-- [ ] Choose a clip of about 3 seconds from a raw recording (never a file with `_with_osd` in the name)
-- [ ] Cut the video with `-c copy`, so the stream is the source's
+- [x] Choose a clip of about 3 seconds from a raw recording (never a file with `_with_osd` in the name)
+- [x] Cut the video with `-c copy`, so the stream is the source's
 - [ ] Cut the `.osd` to the same frames, with the core's parser
 - [ ] Cut the `.srt` to the same time window
 - [ ] Choose the constant offset from the real track to an open-ocean point in the South Atlantic (at least 500 km
@@ -531,16 +531,16 @@ phase that is not started yet are not blocked by anything else unless the text s
 
 **P1: media layer**
 
-- [ ] Port the walksnail `ffmpeg` module (dependencies, encoders, video info)
-- [ ] Replace the `ffprobe` git fork with a crates.io release or with the project's own probe code
-- [ ] Encoder detection with a one-frame test encode
-- [ ] Decode pipe (RGBA frames)
-- [ ] Encode pipe (raw video on stdin, WAV input)
-- [ ] Copy-mode mux (`-c:v copy`)
-- [ ] Cancel, and remove partial files
-- [ ] Test: the copy-mode video MD5 equals the source's
-- [ ] Test: the audio duration equals the video duration within 1 ms
-- [ ] Test: FFmpeg tests skip with a message when FFmpeg is missing
+- [x] Port the walksnail `ffmpeg` module (dependencies, encoders, video info)
+- [x] Replace the `ffprobe` git fork with a crates.io release or with the project's own probe code
+- [x] Encoder detection with a one-frame test encode
+- [x] Decode pipe (RGBA frames)
+- [x] Encode pipe (raw video on stdin, WAV input)
+- [x] Copy-mode mux (`-c:v copy`)
+- [x] Cancel, and remove partial files
+- [x] Test: the copy-mode video MD5 equals the source's
+- [x] Test: the audio duration equals the video duration within 1 ms
+- [x] Test: FFmpeg tests skip with a message when FFmpeg is missing
 
 **P2: OSD, font and overlay**
 

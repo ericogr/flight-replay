@@ -13,6 +13,10 @@ authors = ["EricoGR"]
 flight-replay-core = { path = "crates/core" }
 iced = "0.14"
 anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tempfile = "3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
@@ -21,6 +25,16 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+# Video and audio code converts between integer and floating-point types on purpose. The conversions are
+# checked where they matter (frame sizes, sample counts), so these lints would only add noise.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+# Public functions in this crate document their failure modes in the error type. The `# Errors` sections are
+# written where the failure is not obvious.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 
 [profile.release]
 lto = "thin"

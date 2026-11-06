@@ -9,6 +9,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod ffmpeg;
+
 /// Product name, as shown to the user.
 pub const APP_NAME: &str = "Flight Replay";
 
