@@ -76,7 +76,7 @@ options the user chooses at the end.
 | D3 | Configuration format | TOML (`serde` + `toml`). fpv-motorsound uses YAML, but `serde_yaml` is deprecated. | default |
 | D4 | Telemetry for the sound | **INAV and Betaflight.** INAV first (P4). Betaflight after the recordings are available (P4b). | decided |
 | D5 | Command-line interface | **None in v1.** The core is designed so a CLI can be added later as a separate crate. No CLI code now. | decided |
-| D6 | FFmpeg | External program, found on the system, in v1. Bundling is allowed under GPL-3.0; the decision is revisited in P9. | default |
+| D6 | FFmpeg | External program, found on the system, in v1. Bundling is allowed under GPL-3.0. Decided in P9: not bundled in v0.1.0 (see `docs/build.md`). A folder next to the executable is searched, so a portable folder works. | default, confirmed in P9 |
 | D7 | Test fixtures | **Committed.** Trimmed clips of a few seconds, each with a matching `.osd` and `.srt` slice and the font, under `tests/fixtures/`. Full recordings stay local. GPS coordinates in the committed `.osd` are replaced by fake open-ocean ones. Rules in section 10.4. | decided |
 | D8 | Names | **Flight Replay** as the product name everywhere. Each context uses its own convention (table in section 5.0). | decided |
 | D9 | Output container | MP4 only in v1. | default |
@@ -615,7 +615,7 @@ phase that is not started yet are not blocked by anything else unless the text s
 - [ ] Audio preview in step 5 (`rodio`): the sound is rendered and the player is wired; nobody has listened to it yet
 - [ ] Drag and drop: the dropped files are handled and tested as messages; a real drop on the window is not tried yet
 - [x] Light and dark themes
-- [ ] Linux desktop entry and macOS app bundle metadata
+- [x] Linux desktop entry and macOS app bundle metadata
 - [ ] Manual walk-through on Linux, Windows and macOS
 
 **P8: batch and joined videos**
@@ -626,13 +626,13 @@ phase that is not started yet are not blocked by anything else unless the text s
 
 **P9: release**
 
-- [ ] `make dist` archives for each OS
-- [ ] Windows zip
-- [ ] macOS `Flight Replay.app`
-- [ ] Source archive with each release
-- [ ] Review `NOTICE` and `THIRD_PARTY_NOTICES.md`
-- [ ] Decide on bundling FFmpeg (D6)
-- [ ] Release workflow `release.yml`
+- [ ] `make dist` archives for each OS: the Linux archive was built and installed here; the Windows and macOS layouts are unit-tested, and their first real build is the release workflow
+- [ ] Windows zip: written and unit-tested; not built on Windows yet
+- [ ] macOS `Flight Replay.app`: written and unit-tested (Info.plist, icon, permissions); not built or opened on macOS yet
+- [x] Source archive with each release
+- [x] Review `NOTICE` and `THIRD_PARTY_NOTICES.md`
+- [x] Decide on bundling FFmpeg (D6): not bundled in v0.1.0
+- [ ] Release workflow `release.yml`: written; it has not run, since the repository has no remote yet
 - [ ] Tag `v0.1.0`
 - [ ] Install and run on three OSes
 
@@ -706,3 +706,10 @@ These do not block P0. The defaults are used unless the owner changes them.
   current video, or every video of a folder (those whose output exists or that lack a needed file are left out, with
   the reason). The speed of the OSD is chosen for each video. Tests: `crates/core/tests/join.rs` (the fixture clip
   played twice, rendered with OSD and sound) and the queue and joined-file tests in `crates/gui/src/tests.rs`.
+- Revision 7, 2026-11-06: phase P9 written on Linux. `cargo xtask dist` packs the release for the system it runs on
+  (`.tar.gz` for Linux, `.zip` for Windows and macOS, `Flight Replay.app` with a generated `.icns`), writes
+  `SHA256SUMS`, and `--source` adds the source archive. A Linux archive was built, checked and installed in a
+  temporary prefix. `THIRD_PARTY_NOTICES.md` comes from `cargo about`. The application has an icon (window, Windows
+  resource, Linux icons, macOS bundle). FFmpeg is not bundled (D6). The Windows and macOS packages, the release
+  workflow and the tag `v0.1.0` wait for a remote and a CI run: they cannot be checked from this machine, and a tag
+  pushed would publish a release.

@@ -11,6 +11,13 @@ publish = false
 [dependencies]
 flight-replay-core.workspace = true
 anyhow.workspace = true
+flate2 = "1.1.10"
+tar = "0.4.46"
+sha2 = "0.10.9"
+zip = { version = "9.4.0", default-features = false, features = ["deflate"] }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

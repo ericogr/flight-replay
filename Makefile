@@ -9,7 +9,7 @@ ARGS ?=
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build release run test fmt fmt-check lint deny check install clean golden fixtures
+.PHONY: help build release run test fmt fmt-check lint deny check install clean golden fixtures notices dist app-bundle
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -54,5 +54,15 @@ fixtures: ## Cut the test fixture from a local recording and move its GPS to ope
 	@test -n "$(SAMPLES)" || { echo "set SAMPLES to the folder of the recording"; exit 1; }
 	$(CARGO) xtask fixtures --source "$(SAMPLES)" --recording $(RECORDING)
 
-clean: ## Remove build output
+notices: ## Regenerate THIRD_PARTY_NOTICES.md from the dependencies (needs cargo-about)
+	$(CARGO) about generate --manifest-path crates/gui/Cargo.toml about.hbs -o THIRD_PARTY_NOTICES.md
+
+dist: release ## Archive and SHA256SUMS of the release build, in dist/ (SOURCE=1 adds the source archive)
+	$(CARGO) xtask dist $(if $(SOURCE),--source)
+
+app-bundle: release ## macOS: write dist/Flight Replay.app
+	$(CARGO) xtask app-bundle --out dist
+
+clean: ## Remove build output and dist/
 	$(CARGO) clean
+	rm -rf dist

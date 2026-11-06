@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Flight Replay</title>
+  <rect x="16" y="16" width="480" height="480" rx="104" fill="#23262e"/>
+  <g transform="translate(256 192)">
+    <ellipse cx="0" cy="-72" rx="30" ry="70" fill="#5865f2" transform="rotate(30)"/>
+    <ellipse cx="0" cy="-72" rx="30" ry="70" fill="#5865f2" transform="rotate(210)"/>
+    <circle r="26" fill="#f2f3f5"/>
+    <circle r="10" fill="#23262e"/>
+  </g>
+  <g fill="#f2f3f5">
+    <rect x="101" y="416" width="22" height="24" rx="11"/>
+    <rect x="137" y="396" width="22" height="44" rx="11"/>
+    <rect x="173" y="370" width="22" height="70" rx="11"/>
+    <rect x="209" y="344" width="22" height="96" rx="11"/>
+    <rect x="245" y="320" width="22" height="120" rx="11"/>
+    <rect x="281" y="344" width="22" height="96" rx="11"/>
+    <rect x="317" y="370" width="22" height="70" rx="11"/>
+    <rect x="353" y="396" width="22" height="44" rx="11"/>
+    <rect x="389" y="416" width="22" height="24" rx="11"/>
+  </g>
+</svg>

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Flight Replay
+GenericName=Flight video renderer
+Comment=Add the OSD, the SRT data and a motor sound to a Walksnail Avatar recording
+Exec=flight-replay %f
+Icon=flight-replay
+Terminal=false
+Categories=AudioVideo;Video;
+MimeType=video/mp4;
+Keywords=fpv;osd;walksnail;inav;betaflight;
+StartupWMClass=flight-replay

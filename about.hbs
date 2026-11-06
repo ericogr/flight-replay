@@ -1,0 +1,28 @@
+# Third-party notices
+
+Flight Replay is licensed under the GNU General Public License, version 3 (see `LICENSE`). It includes the
+third-party libraries below. Their copyright and license notices are reproduced here, as their licenses require.
+Code that was adapted from other projects is named in `NOTICE`.
+
+This file is written by `make notices`. Do not edit it by hand.
+
+## Licenses
+
+{{#each overview}}
+- {{{name}}}: {{count}} {{#if (eq count 1)}}crate{{else}}crates{{/if}}
+{{/each}}
+
+{{#each licenses}}
+## {{{name}}}
+
+Used by:
+
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}{{#if crate.repository}} ({{crate.repository}}){{/if}}
+{{/each}}
+
+```text
+{{{text}}}
+```
+
+{{/each}}

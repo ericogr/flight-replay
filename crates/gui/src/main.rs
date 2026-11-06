@@ -39,8 +39,34 @@ fn main() -> anyhow::Result<()> {
     .title(flight_replay_core::APP_NAME)
     .theme(app::FlightReplay::theme)
     .subscription(|_: &app::FlightReplay| app::FlightReplay::subscription())
-    .window_size((1100.0, 820.0))
+    .window(window_settings())
     .exit_on_close_request(false)
     .run()?;
     Ok(())
+}
+
+/// The window: its size, its icon and, on Linux, the id that ties it to `flight-replay.desktop`.
+fn window_settings() -> iced::window::Settings {
+    iced::window::Settings {
+        size: iced::Size::new(1100.0, 820.0),
+        min_size: Some(iced::Size::new(900.0, 600.0)),
+        icon: window_icon(),
+        #[cfg(target_os = "linux")]
+        platform_specific: iced::window::settings::PlatformSpecific {
+            application_id: "flight-replay".to_owned(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// The icon of the window. The window has no icon when the picture cannot be read, which never happens with the
+/// one that is built in.
+fn window_icon() -> Option<iced::window::Icon> {
+    let png = include_bytes!("../../../assets/icon/flight-replay-256.png");
+    let picture = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .ok()?
+        .into_rgba8();
+    let (width, height) = picture.dimensions();
+    iced::window::icon::from_rgba(picture.into_raw(), width, height).ok()
 }

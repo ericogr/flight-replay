@@ -1,35 +1,82 @@
 # Flight Replay
 
 Flight Replay renders the flight controller OSD and the SRT data onto a Walksnail Avatar recording, and adds a
-synthesized motor and propeller sound driven by the telemetry in the `.osd` file. It supports INAV and
-Betaflight OSD layouts. The application is a step-by-step wizard.
+synthesized motor and propeller sound that follows the telemetry stored in the `.osd` file. It is a step-by-step
+wizard for Linux, Windows and macOS.
 
-Flight Replay runs on Linux, Windows and macOS.
+![The icon of Flight Replay](assets/icon/flight-replay-128.png)
 
-> **Status:** early development. The project skeleton is in place. The features are described in
-> [PLAN.md](PLAN.md).
+## What it does
 
-## Requirements
+- **The OSD on the picture.** The glyphs of the `.osd` file are drawn with the font of your goggles, at any position,
+  with elements you can mask by clicking them. Fonts of 2 and 4 colours, 256 and 512 glyphs.
+- **The SRT data on the picture.** Signal, latency, bitrate, distance, battery and time, where you want them.
+- **A motor sound.** The telemetry is read from the OSD screens (throttle, current, battery voltage, and the speed,
+  roll and pitch when the OSD shows them), and drives a synthesized motor, propeller and wind sound. Every parameter
+  can be changed, listened to, and saved as a preset. See [docs/audio-model.md](docs/audio-model.md).
+- **Encoding.** libx264, libx265 and the hardware encoders FFmpeg has on your machine (NVENC, QSV, AMF,
+  VideoToolbox, VAAPI), found by a test encode. Optional 1440p scaling, and a green background for compositing in an
+  editor. With only the sound, the picture is copied as it is.
+- **Several videos.** A queue renders many videos with the same settings, or all the videos of a folder. A video made
+  of several recordings takes several `.osd` files, which are put one after the other.
+- **Checks.** The result is checked after the render: the length of the picture and of the sound, and how well the OSD
+  covers the video.
 
-- Rust 1.88 or newer. The toolchain pinned in `rust-toolchain.toml` is installed automatically by `rustup`.
-- `ffmpeg` and `ffprobe` 6.0 or newer, on `PATH`. They are needed once rendering is implemented.
-- GNU Make.
+Support: the overlay and the SRT work with INAV and Betaflight OSD files. The sound is read from INAV OSDs. Betaflight
+files get the overlay and no sound until the rules for its screens are written (see [PLAN.md](PLAN.md), phase P4b).
 
-## Build and run
+## Install
+
+Download the archive of your system from the releases page, with `SHA256SUMS` to check it.
+
+- **Linux:** unpack, then `./install.sh` (installs in `~/.local`, or in the prefix you give).
+- **Windows:** unpack the zip and run `flight-replay.exe`.
+- **macOS:** unpack the zip and open `Flight Replay.app`.
+
+The releases are not signed, so Windows and macOS warn the first time: see [docs/build.md](docs/build.md#releases).
+
+Flight Replay needs **FFmpeg 6 or newer** (`ffmpeg` and `ffprobe`), which it does not include:
 
 ```sh
-make build      # debug build of all crates
-make run        # run the application
-make check      # formatting, lints, tests and dependency policy
-make release    # optimised build
+sudo apt install ffmpeg      # Debian, Ubuntu (dnf, pacman and the others work too)
+brew install ffmpeg          # macOS
+winget install Gyan.FFmpeg   # Windows
 ```
 
-`make help` lists all the targets.
+## Use
+
+1. **Welcome.** It shows where FFmpeg was found and which encoders work. Choose the colour scheme.
+2. **Input.** Drop the video on the window, or choose it. The `.osd` and `.srt` with the same name next to it are
+   opened by themselves. Choose the OSD font file for your firmware: a `WS_..._24.png` sheet, such as
+   `WS_INAV_Europa_24.png`. Flight Replay does not include one.
+3. **OSD.** Check the position on the preview, centre it, mask elements by clicking them, and correct the timing.
+4. **SRT data.** Choose the fields and where they go.
+5. **Motor sound.** See what the recording gives the sound, change the parameters, and listen to a moment of the flight.
+6. **Output.** Encoder, bitrate, 1440p, file name. You can render only a stretch first, as a quick test.
+7. **Render.** The summary, the FFmpeg commands that will run, and the progress. The queue is here too.
+
+A video can also be given on the command line: `flight-replay video.mp4`. The settings are saved when you leave a
+step and when you close the window.
+
+Nothing leaves your computer. The application makes no network requests.
+
+## Build from source
+
+```sh
+make build      # debug build
+make run        # run the application
+make check      # formatting, lints, tests and the dependency policy
+make dist       # the archive of this system
+```
+
+The requirements for each system, the targets, the tests and the releases are in [docs/build.md](docs/build.md).
+The plan and the state of the work are in [PLAN.md](PLAN.md). The formats are described in [docs/formats](docs/formats).
 
 ## License
 
 Flight Replay is free software, licensed under the GNU General Public License, version 3 (GPL-3.0-only).
-See [LICENSE](LICENSE). The notices for the code it adapts from other projects are in [NOTICE](NOTICE).
+See [LICENSE](LICENSE). The notices for the code it adapts from other projects are in [NOTICE](NOTICE), and those of
+the libraries it uses are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Disclaimer
 

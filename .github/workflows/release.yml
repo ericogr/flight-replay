@@ -1,0 +1,75 @@
+name: Release
+
+# Builds the archives of each system when a version tag is pushed, and publishes them with the checksums and the
+# source archive. Nothing is signed or notarised: the first run on Windows and macOS needs the steps in README.md.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-latest }
+          - { name: windows-x86_64, os: windows-latest }
+          - { name: macos-arm64, os: macos-latest }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libasound2-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release -p flight-replay
+
+      - name: Pack
+        run: cargo xtask dist --out dist/${{ matrix.name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/${{ matrix.name }}/*.*
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Source archive and checksums
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git archive --format=tar.gz --prefix="flight-replay-${version}/" -o "dist/flight-replay-${version}-source.tar.gz" HEAD
+          cd dist
+          rm -f SHA256SUMS
+          sha256sum flight-replay-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Flight Replay ${GITHUB_REF_NAME#v}" \
+            --notes "See CHANGELOG.md. The releases are not signed: see the first-run steps in README.md." \
+            --verify-tag

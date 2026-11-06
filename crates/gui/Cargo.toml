@@ -27,3 +27,6 @@ workspace = true
 iced_runtime = "0.14.0"
 iced_test = "0.14.0"
 tempfile.workspace = true
+
+[target."cfg(windows)".build-dependencies]
+winresource = "0.1.34"
