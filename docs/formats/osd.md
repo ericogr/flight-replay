@@ -34,3 +34,20 @@ the video ran at 60 fps. The scale that reconciles the two is in `crates/core/sr
 
 The OSD does not store text. A value is read from the glyphs that draw it, by its icon and unit. Rules for each
 INAV element are in `crates/core/src/telemetry/`. Blinking or hidden elements are missing from some screens.
+
+## Several files for one video
+
+The goggles write one `.osd` file for each recording. When the pilot joins several recordings into one video, the
+video has one timeline, so the `.osd` files have to follow one another on it, in the order they were recorded
+(`crates/core/src/osd/join.rs`):
+
+- The first file keeps its times. Each following file starts where the one before it ends. A file ends at its last
+  screen plus the average interval between its screens, so the length of the joined recording is the sum of the
+  lengths of the files.
+- The files must have the same grid and the same firmware. Otherwise they do not belong to one video, and they are
+  refused.
+- The overlay, the sound and the telemetry loader all use these shifts, so they agree about where each file starts.
+- The coverage check compares the joined length with the length of the video. It reports a difference larger than
+  2 seconds or 1.5 % of the video: a file may be missing, or a file may belong to another video. Goggles and video
+  clocks drift a little, so a smaller difference is normal. The automatic speed of the OSD (see
+  [the timeline](../audio-model.md)) hides a missing file, which is why the check does not use it.

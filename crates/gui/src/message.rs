@@ -13,7 +13,7 @@ use flight_replay_core::telemetry::Recording;
 use iced::Point;
 
 use crate::sound_params::Param;
-use crate::state::{FileKind, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo};
+use crate::state::{FileKind, FolderPlans, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo};
 use crate::wizard::Step;
 
 /// How the scale between the video and the OSD is chosen.
@@ -130,6 +130,13 @@ pub enum Message {
     Clear(FileKind),
     VideoLoaded(Result<Arc<LoadedVideo>, String>),
     OsdLoaded(Result<Arc<LoadedOsd>, String>),
+    /// Choose another `.osd` file for a video made of several recordings.
+    AddOsd,
+    OsdAdded(Option<PathBuf>),
+    /// Take the `.osd` file at this place out of the list.
+    RemoveOsdFile(usize),
+    /// Play the `.osd` file at this place before the one in front of it.
+    MoveOsdFileUp(usize),
     SrtLoaded(Result<Arc<LoadedSrt>, String>),
     FontLoaded(Result<Arc<LoadedFont>, String>),
     TelemetryReady(PathBuf, Result<Arc<Recording>, String>),
@@ -157,6 +164,14 @@ pub enum Message {
     // output
     BrowseOutput,
     OutputChosen(Option<PathBuf>),
+    // queue
+    QueueAdd,
+    QueueAddFolder,
+    QueueFolderChosen(Option<PathBuf>),
+    QueueFolderPlanned(Result<Arc<FolderPlans>, String>),
+    QueueRemove(usize),
+    QueueClearFinished,
+    QueueStart,
     // render
     StartRender,
     CancelRender,

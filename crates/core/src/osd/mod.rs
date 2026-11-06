@@ -9,8 +9,10 @@
 
 mod file;
 mod firmware;
+mod join;
 mod options;
 
 pub use file::{Frame, HEADER_BYTES, OsdError, OsdFile, SPACE};
 pub use firmware::Firmware;
+pub use join::{Coverage, JoinError, JoinPart, Joined, join, shifts};
 pub use options::OsdOptions;

@@ -11,8 +11,8 @@ use flight_replay_core::discover;
 use flight_replay_core::ffmpeg::{EncoderInfo, Tools};
 use flight_replay_core::font::{CharacterSize, ScaledFont};
 use flight_replay_core::render::{
-    CancelToken, EncoderChoice, Event, OsdLayer, OutputPlan, Overwrite, RenderPlan, SrtLayer,
-    Stage, VideoOutput, Window, command_preview,
+    CancelToken, Event, Outcome, OutputPlan, PlanInputs, RenderError, RenderPlan, Stage, Window,
+    build_plan, command_preview,
 };
 use flight_replay_core::synth::SignalSet;
 use flight_replay_core::telemetry::TelemetrySupport;
@@ -26,8 +26,8 @@ use crate::message::{
 use crate::preview::{OsdPreview, PreviewRequest, SrtPreview};
 use crate::sound_params;
 use crate::state::{
-    FileKind, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, Preview, RenderState, Running,
-    Telemetry,
+    FileKind, FolderPlans, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, Preview, Queue,
+    QueueItem, QueueStatus, RenderState, Running, Telemetry,
 };
 use crate::tasks;
 use crate::wizard::{self, Context, Step};
@@ -100,6 +100,7 @@ pub struct FlightReplay {
     pub stretch: StretchInput,
 
     pub render: RenderState,
+    pub queue: Queue,
     pub command_lines: Vec<String>,
 }
 
@@ -157,6 +158,7 @@ impl FlightReplay {
                 duration: "30".to_owned(),
             },
             render: RenderState::Idle,
+            queue: Queue::default(),
             command_lines: Vec::new(),
         }
     }
@@ -411,7 +413,7 @@ impl FlightReplay {
             }
             FileKind::Osd => {
                 self.busy.osd = true;
-                tasks::load_osd(path)
+                tasks::load_osd(vec![path])
             }
             FileKind::Srt => {
                 self.busy.srt = true;
@@ -449,6 +451,21 @@ impl FlightReplay {
             return Task::none();
         }
         self.open_file(kind, path)
+    }
+
+    /// The `.osd` files that are open, in the order they play.
+    fn osd_paths(&self) -> Vec<PathBuf> {
+        self.osd
+            .as_ref()
+            .map(|o| o.paths.clone())
+            .unwrap_or_default()
+    }
+
+    /// Opens these `.osd` files again, as one recording.
+    fn reload_osd(&mut self, paths: Vec<PathBuf>) -> Task<Message> {
+        self.set_file_error(FileKind::Osd, None);
+        self.busy.osd = true;
+        tasks::load_osd(paths)
     }
 
     fn clear_file(&mut self, kind: FileKind) -> Task<Message> {
@@ -493,41 +510,8 @@ impl FlightReplay {
 
     /// Builds the plan from what the user chose.
     pub fn build_plan(&self) -> Result<RenderPlan, Vec<String>> {
-        let mut problems = Vec::new();
         let Some(video) = &self.video else {
             return Err(vec!["Open a video.".into()]);
-        };
-        let output = &self.settings.output;
-        let draws = self.settings.draw_osd || self.settings.draw_srt;
-        let encoder = self.encoder_choice();
-        let video_output = if draws {
-            if let Some(choice) = encoder {
-                VideoOutput::Encode(choice)
-            } else {
-                problems.push("Choose a video encoder.".to_owned());
-                VideoOutput::Copy
-            }
-        } else {
-            VideoOutput::Copy
-        };
-
-        let osd_layer = match (&self.font, self.settings.draw_osd) {
-            (Some(font), true) => Some(OsdLayer {
-                font: (*font.sheet).clone(),
-                options: self.settings.osd.clone(),
-            }),
-            (None, true) => {
-                problems.push("Choose the OSD font file.".to_owned());
-                None
-            }
-            _ => None,
-        };
-        let srt_layer = match (&self.srt, self.settings.draw_srt) {
-            (Some(srt), true) => Some(SrtLayer {
-                file: (*srt.file).clone(),
-                options: self.settings.srt.clone(),
-            }),
-            _ => None,
         };
         let window = self.stretch.enabled.then(|| Window {
             start_s: self
@@ -539,62 +523,20 @@ impl FlightReplay {
                 .unwrap_or(0.0),
             duration_s: self.stretch.duration.trim().replace(',', ".").parse().ok(),
         });
-        let needs_osd = self.settings.draw_osd || self.settings.make_sound;
-        let plan = RenderPlan {
+        build_plan(&PlanInputs {
             video: video.path.clone(),
             info: video.info.clone(),
-            osd: needs_osd
-                .then(|| self.osd.as_ref().map(|o| (*o.file).clone()))
-                .flatten(),
+            osd: self.osd.as_ref().map(|o| &*o.file),
             osd_path: self.osd.as_ref().map(|o| o.path.clone()),
-            osd_layer,
-            srt_layer,
-            chroma_key: (output.chroma_key && draws).then_some(output.chroma_key_color),
-            sound: self
-                .settings
-                .make_sound
-                .then(|| self.settings.sound.clone()),
+            srt: self.srt.as_ref().map(|s| &*s.file),
+            font: self.font.as_ref().map(|f| &*f.sheet),
+            settings: &self.settings,
+            encoders: self.encoders.as_ref().map_or(&[], |list| list.as_slice()),
             sync: self.sync,
             window,
-            output: OutputPlan {
-                path: PathBuf::from(self.output_path.trim()),
-                video: video_output,
-                audio_bitrate_kbps: output.audio_bitrate_kbps,
-                faststart: output.faststart,
-                overwrite: if self.overwrite {
-                    Overwrite::Replace
-                } else {
-                    Overwrite::Refuse
-                },
-                replace_audio: self.replace_audio,
-            },
-        };
-        match plan.validate() {
-            Ok(()) if problems.is_empty() => Ok(plan),
-            Ok(()) => Err(problems),
-            Err(more) => {
-                problems.extend(more);
-                Err(problems)
-            }
-        }
-    }
-
-    fn encoder_choice(&self) -> Option<EncoderChoice> {
-        let output = &self.settings.output;
-        if output.encoder.is_empty() {
-            return None;
-        }
-        let extra_args = self
-            .encoders
-            .as_ref()
-            .and_then(|list| list.iter().find(|e| e.name == output.encoder))
-            .map(|e| e.extra_args.clone())
-            .unwrap_or_default();
-        Some(EncoderChoice {
-            name: output.encoder.clone(),
-            extra_args,
-            bitrate_mbps: output.bitrate_mbps,
-            upscale_1440p: output.upscale_1440p,
+            output: PathBuf::from(self.output_path.trim()),
+            overwrite: self.overwrite,
+            replace_audio: self.replace_audio,
         })
     }
 
@@ -629,6 +571,10 @@ impl FlightReplay {
             | Message::SrtLoaded(_)
             | Message::FontLoaded(_)
             | Message::TelemetryReady(..) => self.update_files(message),
+            Message::AddOsd
+            | Message::OsdAdded(_)
+            | Message::RemoveOsdFile(_)
+            | Message::MoveOsdFileUp(_) => self.edit_osd_files(message),
             Message::DrawOsd(_)
             | Message::DrawSrt(_)
             | Message::MakeSound(_)
@@ -649,6 +595,13 @@ impl FlightReplay {
             | Message::AudioRendered(_)
             | Message::StopAudio
             | Message::AudioTick => self.update_audio(message),
+            Message::QueueAdd
+            | Message::QueueAddFolder
+            | Message::QueueFolderChosen(_)
+            | Message::QueueFolderPlanned(_)
+            | Message::QueueRemove(_)
+            | Message::QueueClearFinished
+            | Message::QueueStart => self.update_queue(message),
             Message::StartRender
             | Message::CancelRender
             | Message::Render(_)
@@ -726,9 +679,10 @@ impl FlightReplay {
                 self.encoders = Some(list);
                 Task::none()
             }
-            Message::ChooseFfmpegFolder => {
-                tasks::pick_folder("Choose the folder of ffmpeg and ffprobe")
-            }
+            Message::ChooseFfmpegFolder => tasks::pick_folder(
+                "Choose the folder of ffmpeg and ffprobe",
+                Message::FfmpegFolderChosen,
+            ),
             Message::FfmpegFolderChosen(Some(dir)) => {
                 self.settings.ffmpeg_dir = Some(dir.clone());
                 self.tools = ToolsState::Searching;
@@ -739,6 +693,48 @@ impl FlightReplay {
                 self.settings.theme = theme;
                 self.save_settings();
                 Task::none()
+            }
+            _ => Task::none(),
+        }
+    }
+
+    /// Adding, removing and reordering the `.osd` files of a video made of several recordings.
+    fn edit_osd_files(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::AddOsd => tasks::pick_more_osd(
+                self.video
+                    .as_ref()
+                    .and_then(|v| v.path.parent().map(Path::to_path_buf)),
+            ),
+            Message::OsdAdded(Some(path)) => {
+                let mut paths = self.osd_paths();
+                if paths.contains(&path) {
+                    self.notices
+                        .push("That .osd file is already in the list.".to_owned());
+                    return Task::none();
+                }
+                paths.push(path);
+                self.reload_osd(paths)
+            }
+            Message::RemoveOsdFile(index) => {
+                let mut paths = self.osd_paths();
+                if index < paths.len() {
+                    paths.remove(index);
+                }
+                if paths.is_empty() {
+                    self.clear_file(FileKind::Osd)
+                } else {
+                    self.reload_osd(paths)
+                }
+            }
+            Message::MoveOsdFileUp(index) => {
+                let mut paths = self.osd_paths();
+                if index > 0 && index < paths.len() {
+                    paths.swap(index - 1, index);
+                    self.reload_osd(paths)
+                } else {
+                    Task::none()
+                }
             }
             _ => Task::none(),
         }
@@ -1145,12 +1141,11 @@ impl FlightReplay {
                     running.cancel.cancel();
                     running.cancelling = true;
                 }
+                // The videos that have not started stay in the queue, waiting.
+                self.queue.running = false;
                 Task::none()
             }
-            Message::Render(message) => {
-                self.render_message(message);
-                Task::none()
-            }
+            Message::Render(message) => self.render_message(message),
             Message::OpenOutputFolder => {
                 if let RenderState::Finished(Ok(outcome)) = &self.render {
                     tasks::open_folder(&outcome.output);
@@ -1162,11 +1157,11 @@ impl FlightReplay {
         }
     }
 
-    fn render_message(&mut self, message: RenderMessage) {
+    fn render_message(&mut self, message: RenderMessage) -> Task<Message> {
         match message {
             RenderMessage::Event(event) => {
                 let RenderState::Running(running) = &mut self.render else {
-                    return;
+                    return Task::none();
                 };
                 match event {
                     Event::Stage(stage) => running.stage = stage,
@@ -1177,14 +1172,185 @@ impl FlightReplay {
                     },
                     Event::Warning(text) => running.warnings.push(text),
                 }
+                Task::none()
             }
             RenderMessage::Done(result) => {
+                let finished = self.queue.current.take();
+                if let Some(index) = finished {
+                    self.queue_item_done(index, &result);
+                }
                 self.render = RenderState::Finished(
                     result
                         .map(|outcome| Box::new((*outcome).clone()))
                         .map_err(|error| error.clone()),
                 );
+                if finished.is_some() && self.queue.running {
+                    self.queue_next()
+                } else {
+                    Task::none()
+                }
             }
+        }
+    }
+
+    // ----- the queue
+
+    /// Records how the render of a queue item ended.
+    fn queue_item_done(&mut self, index: usize, result: &Result<Arc<Outcome>, String>) {
+        let Some(item) = self.queue.items.get_mut(index) else {
+            return;
+        };
+        item.status = match result {
+            Ok(outcome) => QueueStatus::Done(format!(
+                "saved {} in {:.1} s",
+                outcome.output.display(),
+                outcome.elapsed.as_secs_f64()
+            )),
+            Err(error) if *error == RenderError::Cancelled.to_string() => QueueStatus::Cancelled,
+            Err(error) => QueueStatus::Failed(error.clone()),
+        };
+        if item.status == QueueStatus::Cancelled {
+            self.queue.running = false;
+        }
+    }
+
+    /// Starts the next video that is waiting, or ends the queue.
+    fn queue_next(&mut self) -> Task<Message> {
+        let Some(index) = self
+            .queue
+            .items
+            .iter()
+            .position(|item| item.status == QueueStatus::Waiting)
+        else {
+            self.queue.running = false;
+            return Task::none();
+        };
+        let Some(tools) = self.tools() else {
+            self.queue.running = false;
+            return Task::none();
+        };
+        let item = &mut self.queue.items[index];
+        item.status = QueueStatus::Running;
+        let plan = (*item.plan).clone();
+        self.queue.current = Some(index);
+        let cancel = CancelToken::new();
+        self.render = RenderState::Running(Running::new(cancel.clone()));
+        tasks::start_render(tools, plan, cancel)
+    }
+
+    /// What the videos of a folder are rendered with: what the wizard has now, apart from the files and the speed of
+    /// the OSD, which is chosen for each video.
+    fn folder_template(&self) -> tasks::Template {
+        tasks::Template {
+            settings: self.settings.clone(),
+            encoders: self.encoders.clone().unwrap_or_default(),
+            font: self.font.as_ref().map(|f| Arc::clone(&f.sheet)),
+            sync: SyncOptions {
+                scale: ScaleMode::Auto,
+                ..self.sync
+            },
+            overwrite: self.overwrite,
+            replace_audio: self.replace_audio,
+            queued: self
+                .queue
+                .items
+                .iter()
+                .map(|i| i.plan.output.path.clone())
+                .collect(),
+        }
+    }
+
+    /// Puts the videos of a folder in the queue, and says which ones were left out and why.
+    fn folder_planned(&mut self, result: Result<Arc<FolderPlans>, String>) {
+        self.queue.preparing = false;
+        match result {
+            Ok(plans) => {
+                self.queue.items.extend(plans.items.iter().cloned());
+                let added = plans.items.len();
+                self.notices.push(format!(
+                    "{added} {} added to the queue.",
+                    if added == 1 {
+                        "video was"
+                    } else {
+                        "videos were"
+                    }
+                ));
+                for reason in &plans.skipped {
+                    self.notices.push(format!("Left out: {reason}"));
+                }
+            }
+            Err(error) => self.notices.push(error),
+        }
+    }
+
+    fn update_queue(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::QueueAdd => {
+                match self.build_plan() {
+                    Ok(plan) => {
+                        if self
+                            .queue
+                            .items
+                            .iter()
+                            .any(|item| item.plan.output.path == plan.output.path)
+                        {
+                            self.notices.push(
+                                "A video with that output file is in the queue already.".to_owned(),
+                            );
+                        } else {
+                            self.save_settings();
+                            self.queue.items.push(QueueItem::new(plan));
+                        }
+                    }
+                    Err(problems) => self.notices.push(problems.join(" ")),
+                }
+                Task::none()
+            }
+            Message::QueueAddFolder => tasks::pick_folder(
+                "Choose the folder with the videos",
+                Message::QueueFolderChosen,
+            ),
+            Message::QueueFolderChosen(Some(folder)) => {
+                let Some(tools) = self.tools() else {
+                    return Task::none();
+                };
+                self.queue.preparing = true;
+                tasks::plan_folder(tools, folder, self.folder_template())
+            }
+            Message::QueueFolderPlanned(result) => {
+                self.folder_planned(result);
+                Task::none()
+            }
+            Message::QueueRemove(index) => {
+                if index < self.queue.items.len() && self.queue.current != Some(index) {
+                    self.queue.items.remove(index);
+                    if let Some(current) = &mut self.queue.current
+                        && *current > index
+                    {
+                        *current -= 1;
+                    }
+                }
+                Task::none()
+            }
+            Message::QueueClearFinished => {
+                self.queue.items.retain(|item| {
+                    matches!(item.status, QueueStatus::Waiting | QueueStatus::Running)
+                });
+                self.queue.current = self
+                    .queue
+                    .items
+                    .iter()
+                    .position(|item| item.status == QueueStatus::Running);
+                Task::none()
+            }
+            Message::QueueStart => {
+                if self.queue.running || self.is_rendering() {
+                    return Task::none();
+                }
+                self.queue.running = true;
+                self.queue_next()
+            }
+            _ => Task::none(),
         }
     }
 }

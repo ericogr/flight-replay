@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use super::decoder::{Decoder, Options, Value, detect_flight_modes, detect_message_row};
 use super::table::{Row, Table, TableError};
-use crate::osd::{OsdError, OsdFile};
+use crate::osd::{OsdError, OsdFile, shifts};
 
 /// What to do when loading.
 #[derive(Debug, Clone, Copy, Default)]
@@ -106,16 +106,19 @@ impl Recording {
         if paths.is_empty() {
             return Err(RecordingError::NoFiles);
         }
+        let mut files = Vec::with_capacity(paths.len());
+        for path in paths {
+            files.push(OsdFile::open(path).map_err(|source| RecordingError::Osd {
+                path: path.display().to_string(),
+                source,
+            })?);
+        }
+        let shifts = shifts(&files.iter().collect::<Vec<_>>(), gap);
         let mut rows: Vec<Row> = Vec::new();
         let mut segments = Vec::new();
         let mut layouts = Vec::new();
         let mut grid: Option<(u32, u32)> = None;
-        let mut end = 0.0;
-        for (index, path) in paths.iter().enumerate() {
-            let file = OsdFile::open(path).map_err(|source| RecordingError::Osd {
-                path: path.display().to_string(),
-                source,
-            })?;
+        for ((path, file), shift) in paths.iter().zip(&files).zip(shifts) {
             match grid {
                 None => grid = Some((file.columns, file.rows)),
                 Some((columns, rows_)) if (columns, rows_) != (file.columns, file.rows) => {
@@ -130,20 +133,18 @@ impl Recording {
                 }
                 Some(_) => {}
             }
-            let (part, layout) = decode_rows(&file, options);
+            let (part, layout) = decode_rows(file, options);
             let first = part.iter().map(|r| r.time).fold(f64::INFINITY, f64::min);
             let last = part
                 .iter()
                 .map(|r| r.time)
                 .fold(f64::NEG_INFINITY, f64::max);
-            let shift = if index > 0 { end + gap - first } else { 0.0 };
             segments.push(Segment {
                 path: Some(path.clone()),
                 start: first + shift,
                 end: last + shift,
                 frames: part.len(),
             });
-            end = last + shift;
             rows.extend(part.into_iter().map(|mut row| {
                 row.time += shift;
                 row

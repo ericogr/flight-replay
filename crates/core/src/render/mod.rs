@@ -6,10 +6,12 @@
 //! A [`RenderPlan`] says what to do. [`render`] does it, reporting progress and stopping when asked. The module has no
 //! user interface: the application, or a command-line tool, only builds a plan and calls it.
 
+mod builder;
 mod events;
 mod plan;
 mod run;
 
+pub use builder::{PlanInputs, build_plan, encoder_choice};
 pub use events::{CancelToken, Event, Stage};
 pub use plan::{
     EncoderChoice, Mode, OsdLayer, OutputPlan, Overwrite, RenderPlan, ResolvedWindow, SrtLayer,

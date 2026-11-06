@@ -620,9 +620,9 @@ phase that is not started yet are not blocked by anything else unless the text s
 
 **P8: batch and joined videos**
 
-- [ ] Queue of several videos in the GUI
-- [ ] One video with several `.osd` files (joined)
-- [ ] Coverage check for joined videos
+- [x] Queue of several videos in the GUI
+- [x] One video with several `.osd` files (joined)
+- [x] Coverage check for joined videos
 
 **P9: release**
 
@@ -698,3 +698,11 @@ These do not block P0. The defaults are used unless the owner changes them.
   asking a question in a dialog. Typing into the real window could not be tried: the screen saver was covering the
   window, and the session was left alone. Open: listening to the sound preview, a real drag and drop, and the manual
   walk-through on the three systems.
+- Revision 6, 2026-11-06: phase P8 built and tested on Linux. `osd::join` puts the `.osd` files of one video on one
+  timeline (each file starts where the one before it ends); the overlay, the sound and the telemetry loader share
+  the same shifts, so they cannot disagree. `osd::Coverage` warns when the files do not add up to the video (a file
+  may be missing, or belongs to another video). The plan is now built in one place, `render::build_plan`, for the
+  wizard and the queue. The queue renders the videos one after the other with the settings of the wizard: add the
+  current video, or every video of a folder (those whose output exists or that lack a needed file are left out, with
+  the reason). The speed of the OSD is chosen for each video. Tests: `crates/core/tests/join.rs` (the fixture clip
+  played twice, rendered with OSD and sound) and the queue and joined-file tests in `crates/gui/src/tests.rs`.

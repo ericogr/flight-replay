@@ -13,16 +13,16 @@ use std::path::{Path, PathBuf};
 
 use flight_replay_core::config::ThemeChoice;
 use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools, probe};
+use flight_replay_core::osd::Coverage;
 use iced::Task;
 use iced::futures::StreamExt;
 use iced_runtime::Action;
-use iced_test::simulator;
 use image::{Rgba, RgbaImage};
 use tempfile::TempDir;
 
 use crate::app::{FlightReplay, ToolsState};
 use crate::message::{Message, OutputEdit};
-use crate::state::{FileKind, RenderState};
+use crate::state::{FileKind, QueueStatus, RenderState};
 use crate::tasks;
 use crate::view;
 use crate::wizard::Step;
@@ -73,9 +73,19 @@ impl Harness {
         self.run(task);
     }
 
+    /// The window as a simulator sees it. It is taller than the real one, so that a step that scrolls is all in view:
+    /// the simulator finds only what is in view.
+    fn tall_window(&self) -> iced_test::Simulator<'_, Message> {
+        iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            iced::Size::new(1100.0, 3000.0),
+            view::view(&self.app),
+        )
+    }
+
     /// The messages that clicking the widget with this text produces. Empty for a button that is switched off.
     fn clicks(&self, label: &str) -> Vec<Message> {
-        let mut ui = simulator(view::view(&self.app));
+        let mut ui = self.tall_window();
         ui.click(label)
             .unwrap_or_else(|_| panic!("a widget with the text {label:?} on {:?}", self.app.step));
         ui.into_messages().collect()
@@ -90,7 +100,7 @@ impl Harness {
 
     /// Whether some widget shows this text.
     fn shows(&self, text: &str) -> bool {
-        simulator(view::view(&self.app)).find(text).is_ok()
+        self.tall_window().find(text).is_ok()
     }
 
     /// Saves a picture of the window when `FLIGHT_REPLAY_SNAPSHOTS` names a folder.
@@ -305,4 +315,171 @@ fn every_step_is_walked_and_the_video_is_rendered() {
         .filter(|(a, b)| a[..3].iter().zip(&b[..3]).any(|(x, y)| x.abs_diff(*y) > 40))
         .count();
     assert!(changed > 2_000, "the OSD is drawn: {changed} pixels differ");
+}
+
+/// The clip played twice, as one video of about six seconds, in the folder of the harness.
+fn joined_video(harness: &Harness) -> PathBuf {
+    let tools = Tools::locate(None).expect("the tools");
+    let clip = std::fs::canonicalize(fixture("clip-3s.mp4")).expect("the clip");
+    let list = harness.path("list.txt");
+    std::fs::write(&list, format!("file '{0}'\nfile '{0}'\n", clip.display())).expect("the list");
+    let output = harness.path("joined.mp4");
+    let status = std::process::Command::new(tools.ffmpeg())
+        .args(["-v", "error", "-f", "concat", "-safe", "0", "-i"])
+        .arg(&list)
+        .args(["-c", "copy"])
+        .arg(&output)
+        .status()
+        .expect("FFmpeg runs");
+    assert!(status.success(), "FFmpeg joined the clip");
+    output
+}
+
+#[test]
+fn a_video_made_of_two_recordings_takes_two_osd_files() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let video = joined_video(&app);
+    let first = app.path("first.osd");
+    let second = app.path("second.osd");
+    std::fs::copy(fixture("clip-3s.osd"), &first).expect("a copy");
+    std::fs::copy(fixture("clip-3s.osd"), &second).expect("a copy");
+
+    app.send(Message::FileDropped(video));
+    assert!(
+        app.app.osd.is_none(),
+        "there is no .osd next to the joined video"
+    );
+    app.send(Message::FileChosen(FileKind::Osd, Some(first.clone())));
+    assert_eq!(app.app.osd.as_ref().expect("the first .osd").paths.len(), 1);
+
+    app.send(Message::Next);
+    app.send(Message::OsdAdded(Some(second.clone())));
+    let joined = app.app.osd.as_ref().expect("the joined .osd");
+    assert_eq!(joined.paths, [first.clone(), second.clone()]);
+    let single = flight_replay_core::osd::OsdFile::open(&first).expect("the first .osd");
+    assert!(
+        (joined.file.duration_s() - 2.0 * single.duration_s()).abs() < 0.002,
+        "the durations add up"
+    );
+    let video_s = app.app.video.as_ref().expect("the video").info.duration_s;
+    assert_eq!(Coverage::new(&joined.parts, video_s).warning(), None);
+    app.snapshot("2-input-two-osd");
+
+    app.send(Message::OsdAdded(Some(second.clone())));
+    assert!(
+        app.app.notices.iter().any(|n| n.contains("already")),
+        "the same file is not added twice"
+    );
+
+    app.send(Message::MoveOsdFileUp(1));
+    assert_eq!(
+        app.app.osd.as_ref().expect("the .osd").paths,
+        [second, first.clone()]
+    );
+    app.send(Message::RemoveOsdFile(0));
+    assert_eq!(app.app.osd.as_ref().expect("the .osd").paths, [first]);
+}
+
+#[test]
+fn the_screen_says_when_the_osd_files_do_not_cover_the_video() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    // The clip is three seconds long, and two files of three seconds are six.
+    let second = app.path("second.osd");
+    std::fs::copy(fixture("clip-3s.osd"), &second).expect("a copy");
+    app.send(Message::FileDropped(fixture("clip-3s.mp4")));
+    app.send(Message::Next);
+    app.send(Message::OsdAdded(Some(second)));
+
+    let osd = app.app.osd.as_ref().expect("the joined .osd");
+    let video_s = app.app.video.as_ref().expect("the video").info.duration_s;
+    let warning = Coverage::new(&osd.parts, video_s)
+        .warning()
+        .expect("the files run past the video");
+    assert!(
+        app.shows(&warning),
+        "the warning is on the screen: {warning}"
+    );
+    app.snapshot("2-input-too-many-osd");
+}
+
+#[test]
+fn a_queue_renders_the_videos_of_a_folder_one_after_the_other() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let folder = app.path("flights");
+    std::fs::create_dir(&folder).expect("the folder");
+    for name in ["a", "b"] {
+        for extension in ["mp4", "osd", "srt"] {
+            std::fs::copy(
+                fixture(&format!("clip-3s.{extension}")),
+                folder.join(format!("{name}.{extension}")),
+            )
+            .expect("a copy");
+        }
+    }
+    // A video without its .osd cannot be rendered with the OSD and the sound.
+    std::fs::copy(fixture("clip-3s.mp4"), folder.join("c.mp4")).expect("a copy");
+    let font = app.path("font.png");
+    write_font(&font);
+
+    app.send(Message::FileDropped(folder.join("a.mp4")));
+    app.send(Message::FileDropped(font));
+    app.send(Message::GoTo(Step::Render));
+    assert_eq!(app.app.step, Step::Render);
+    assert!(!app.shows("Start the queue"), "there is nothing to start");
+
+    app.click("Add this video to the queue");
+    assert_eq!(app.app.queue.items.len(), 1);
+    app.send(Message::QueueFolderChosen(Some(folder.clone())));
+    assert_eq!(
+        app.app
+            .queue
+            .items
+            .iter()
+            .map(|i| i.title.as_str())
+            .collect::<Vec<_>>(),
+        ["a.mp4", "b.mp4"],
+        "a is in the queue already, and c has no .osd"
+    );
+    let left_out: Vec<_> = app
+        .app
+        .notices
+        .iter()
+        .filter(|n| n.starts_with("Left out"))
+        .collect();
+    assert_eq!(left_out.len(), 2, "{left_out:?}");
+    assert!(
+        left_out
+            .iter()
+            .any(|n| n.contains("a.mp4") && n.contains("queue"))
+    );
+    assert!(
+        left_out
+            .iter()
+            .any(|n| n.contains("c.mp4") && n.contains(".osd"))
+    );
+    app.snapshot("7-queue");
+
+    app.click("Start the queue");
+    assert!(!app.app.queue.running, "the queue is over");
+    for item in &app.app.queue.items {
+        assert!(
+            matches!(item.status, QueueStatus::Done(_)),
+            "{}: {:?}",
+            item.title,
+            item.status
+        );
+    }
+    for name in ["a_flight-replay.mp4", "b_flight-replay.mp4"] {
+        assert!(folder.join(name).is_file(), "{name} was rendered");
+    }
+    app.snapshot("8-queue-done");
+
+    app.click("Clear the finished");
+    assert!(app.app.queue.items.is_empty());
 }

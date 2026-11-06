@@ -15,6 +15,7 @@ use crate::telemetry::{Profile, TelemetrySupport};
 use crate::timeline::SyncOptions;
 
 /// The OSD, drawn with a font.
+#[derive(Clone)]
 pub struct OsdLayer {
     /// The font sheet of the goggles.
     pub font: FontSheet,
@@ -23,6 +24,7 @@ pub struct OsdLayer {
 }
 
 /// The SRT data, drawn as text.
+#[derive(Clone)]
 pub struct SrtLayer {
     /// The subtitles.
     pub file: SrtFile,
@@ -105,6 +107,7 @@ impl OutputPlan {
 }
 
 /// Everything a render needs.
+#[derive(Clone)]
 pub struct RenderPlan {
     /// The source video.
     pub video: PathBuf,

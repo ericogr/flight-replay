@@ -10,7 +10,7 @@ use iced::{Element, Font};
 use super::widgets::{action, clock, good, hint, page, problem, section};
 use crate::app::FlightReplay;
 use crate::message::Message;
-use crate::state::{RenderState, Running};
+use crate::state::{QueueStatus, RenderState, Running};
 use crate::wizard::{self, Step};
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
@@ -35,7 +35,81 @@ pub fn view(app: &FlightReplay) -> Element<'_, Message> {
             });
         }
     }
+    // With videos in the queue, the queue is what the user is working with, so it comes first.
+    if app.queue.items.is_empty() {
+        items.push(section("Queue", queue(app)));
+    } else {
+        items.insert(0, section("Queue", queue(app)));
+    }
     page(items).into()
+}
+
+/// Several videos, rendered one after the other with the settings of the wizard.
+fn queue(app: &FlightReplay) -> Element<'_, Message> {
+    let queue = &app.queue;
+    let rendering = app.is_rendering();
+    let mut items = column![hint(
+        "Render several videos one after the other with these settings. Add this video, or every video of a folder with the files found next to each. The speed of the OSD is chosen for each video."
+    )]
+    .spacing(8);
+    items = items.push(
+        row![
+            action(
+                "Add this video to the queue",
+                (!rendering && app.build_plan().is_ok()).then_some(Message::QueueAdd)
+            ),
+            action(
+                "Add the videos of a folder…",
+                (!rendering && !queue.preparing && app.tools().is_some())
+                    .then_some(Message::QueueAddFolder)
+            ),
+        ]
+        .spacing(8),
+    );
+    if queue.preparing {
+        items = items.push(hint("Preparing the videos…"));
+    }
+    for (index, item) in queue.items.iter().enumerate() {
+        let status: Element<'_, Message> = match &item.status {
+            QueueStatus::Waiting => hint("waiting"),
+            QueueStatus::Running => text("rendering…").into(),
+            QueueStatus::Done(what) => good(what.clone()),
+            QueueStatus::Failed(why) => problem(why.clone()),
+            QueueStatus::Cancelled => hint("stopped"),
+        };
+        items = items.push(
+            row![
+                text(format!("{}. {}", index + 1, item.title)),
+                status,
+                action(
+                    "Remove",
+                    (item.status != QueueStatus::Running).then_some(Message::QueueRemove(index))
+                ),
+            ]
+            .spacing(12)
+            .align_y(iced::Alignment::Center),
+        );
+    }
+    if !queue.items.is_empty() {
+        let finished = queue
+            .items
+            .iter()
+            .any(|i| !matches!(i.status, QueueStatus::Waiting | QueueStatus::Running));
+        items = items.push(
+            row![
+                action(
+                    "Start the queue",
+                    (queue.waiting() > 0 && !rendering).then_some(Message::QueueStart)
+                ),
+                action(
+                    "Clear the finished",
+                    finished.then_some(Message::QueueClearFinished)
+                ),
+            ]
+            .spacing(8),
+        );
+    }
+    items.into()
 }
 
 fn summary(app: &FlightReplay) -> Element<'_, Message> {
