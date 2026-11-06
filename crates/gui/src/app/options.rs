@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use flight_replay_core::synth::SoundSettings;
+use flight_replay_core::synth::{MOTOR_PRESETS, SoundSettings};
 use iced::Task;
 
 use super::FlightReplay;
@@ -86,6 +86,13 @@ impl FlightReplay {
             SoundEdit::SampleRate(rate) => self.settings.sound.audio.sample_rate = rate,
             SoundEdit::Stereo(stereo) => {
                 self.settings.sound.audio.channels = if stereo { 2 } else { 1 };
+            }
+            SoundEdit::MotorPreset(index) => {
+                if let Some(preset) = MOTOR_PRESETS.get(index) {
+                    preset.apply(&mut self.settings.sound);
+                    // The saved preset that was chosen no longer describes the sound.
+                    self.selected_preset = None;
+                }
             }
             SoundEdit::Preset(name) => {
                 if let Some(preset) = self.settings.presets.get(&name) {

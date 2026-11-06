@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use flight_replay_core::render::{Mode, Outcome};
-use iced::widget::{column, progress_bar, row, text};
+use iced::widget::{checkbox, column, progress_bar, row, text};
 use iced::{Element, Font};
 
 use super::widgets::{action, good, hint, page, problem, section};
@@ -160,13 +160,27 @@ fn summary(app: &FlightReplay) -> Element<'_, Message> {
     lines.into()
 }
 
+/// The FFmpeg command, which is shown only when the user asks for it.
 fn commands(app: &FlightReplay) -> Element<'_, Message> {
-    if app.command_lines.is_empty() {
-        return hint("The command is shown here when everything is set.");
+    let show = app.preferences.show_command;
+    let toggle = checkbox(show)
+        .label("Show the FFmpeg command before rendering")
+        .on_toggle(Message::ShowCommand);
+    if !show {
+        return toggle.into();
     }
-    let mut lines = column![hint(
-        "FFmpeg runs these commands. The sound is made by Flight Replay itself."
-    )]
+    if app.command_lines.is_empty() {
+        return column![
+            toggle,
+            hint("The command is shown here when everything is set.")
+        ]
+        .spacing(6)
+        .into();
+    }
+    let mut lines = column![
+        toggle,
+        hint("FFmpeg runs these commands. The sound is made by Flight Replay itself.")
+    ]
     .spacing(6);
     for line in &app.command_lines {
         lines = lines.push(text(line.clone()).font(Font::MONOSPACE).size(12));

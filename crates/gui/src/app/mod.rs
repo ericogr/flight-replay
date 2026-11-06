@@ -441,6 +441,7 @@ impl FlightReplay {
                 self.open_output_folder();
                 Task::none()
             }
+            Message::ShowCommand(on) => self.set_show_command(on),
             Message::CopyCommand => iced::clipboard::write(self.command_lines.join("\n")),
         }
     }
@@ -509,6 +510,12 @@ impl FlightReplay {
 
     fn choose_theme(&mut self, theme: ThemeChoice) -> Task<Message> {
         self.preferences.theme = theme;
+        self.save_settings();
+        Task::none()
+    }
+
+    fn set_show_command(&mut self, on: bool) -> Task<Message> {
+        self.preferences.show_command = on;
         self.save_settings();
         Task::none()
     }

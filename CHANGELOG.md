@@ -18,9 +18,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - A queue of videos, with every video of a folder, and videos made of several `.osd` files.
 - Archives for Linux, Windows and macOS (`make dist`), a Linux desktop entry and icons, and `Flight Replay.app`.
 - `docs/architecture.md`.
+- Ready-made motor sounds for different electric motors and propellers (small park flyer, three blades, aerobatic
+  power, large slow propeller, pusher, ducted fan), next to the default. They are a starting point: every value can
+  still be changed, and the sound list says "Custom" when one was. Two more sliders, the whine pitch and the sharpness
+  of the propeller noise.
+- An option to show the FFmpeg command before rendering.
 
 ### Changed
 
+- The FFmpeg command is no longer shown before the render unless "Show the FFmpeg command before rendering" is
+  ticked. It is off by default.
 - The picture and the OSD follow the sound while the sound preview plays, and the preview stops at the end of the
   video. It used to stay on one frame, and play past the end.
 - The colour scheme and the last folder are kept by the window and not by the core library. The same

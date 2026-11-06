@@ -58,6 +58,8 @@ pub enum SoundEdit {
     Param(Param, f64),
     SampleRate(u32),
     Stereo(bool),
+    /// Take the sound of a kind of motor and propeller: the place in `MOTOR_PRESETS`.
+    MotorPreset(usize),
     Preset(String),
     PresetName(String),
     SavePreset,
@@ -157,6 +159,8 @@ pub enum Message {
     CancelRender,
     Render(RenderMessage),
     OpenOutputFolder,
+    /// Show or hide the FFmpeg command before the render.
+    ShowCommand(bool),
     CopyCommand,
     DismissNotice(usize),
     // application

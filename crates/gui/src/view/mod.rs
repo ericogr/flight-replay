@@ -8,7 +8,7 @@ mod output;
 mod overlay;
 mod preview_view;
 mod render;
-mod sound;
+pub mod sound;
 mod srt;
 mod welcome;
 mod widgets;

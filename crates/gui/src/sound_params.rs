@@ -24,6 +24,7 @@ pub enum Param {
     ToneGain,
     Brightness,
     WhineGain,
+    WhineRatio,
     StereoWidth,
     CurrentBase,
     CurrentFull,
@@ -31,6 +32,7 @@ pub enum Param {
     PropGain,
     PropLow,
     PropHigh,
+    PropQ,
     BladeDepth,
     WindGain,
     WindRef,
@@ -265,6 +267,16 @@ pub const SPECS: &[Spec] = &[
         "Volume of the high whine that is not a harmonic.",
     ),
     spec(
+        Param::WhineRatio,
+        Group::Tone,
+        "Whine pitch",
+        "×",
+        1.5,
+        8.0,
+        0.1,
+        "The pitch of the whine, as a multiple of the pitch of the propeller. It is not a harmonic.",
+    ),
+    spec(
         Param::StereoWidth,
         Group::Tone,
         "Stereo width",
@@ -333,6 +345,16 @@ pub const SPECS: &[Spec] = &[
         8000.0,
         10.0,
         "Centre of the noise band with the throttle at the maximum.",
+    ),
+    spec(
+        Param::PropQ,
+        Group::Propeller,
+        "Band sharpness",
+        "",
+        0.3,
+        4.0,
+        0.05,
+        "How narrow the noise band is. A higher value is a thinner, more whistling noise.",
     ),
     spec(
         Param::BladeDepth,
@@ -404,6 +426,7 @@ pub fn get(settings: &SoundSettings, param: Param) -> f64 {
         Param::ToneGain => settings.tone.gain,
         Param::Brightness => settings.tone.brightness,
         Param::WhineGain => settings.tone.whine_gain,
+        Param::WhineRatio => settings.tone.whine_ratio,
         Param::StereoWidth => settings.tone.stereo_width,
         Param::CurrentBase => settings.loudness.current_base_a,
         Param::CurrentFull => settings.loudness.current_full_a,
@@ -411,6 +434,7 @@ pub fn get(settings: &SoundSettings, param: Param) -> f64 {
         Param::PropGain => settings.prop_noise.gain,
         Param::PropLow => settings.prop_noise.center_low_hz,
         Param::PropHigh => settings.prop_noise.center_high_hz,
+        Param::PropQ => settings.prop_noise.q,
         Param::BladeDepth => settings.prop_noise.blade_mod_depth,
         Param::WindGain => settings.wind.gain,
         Param::WindRef => settings.wind.speed_ref_kmh,
@@ -437,6 +461,7 @@ pub fn set(settings: &mut SoundSettings, param: Param, value: f64) {
         Param::ToneGain => settings.tone.gain = value,
         Param::Brightness => settings.tone.brightness = value,
         Param::WhineGain => settings.tone.whine_gain = value,
+        Param::WhineRatio => settings.tone.whine_ratio = value,
         Param::StereoWidth => settings.tone.stereo_width = value,
         Param::CurrentBase => settings.loudness.current_base_a = value,
         Param::CurrentFull => settings.loudness.current_full_a = value,
@@ -444,6 +469,7 @@ pub fn set(settings: &mut SoundSettings, param: Param, value: f64) {
         Param::PropGain => settings.prop_noise.gain = value,
         Param::PropLow => settings.prop_noise.center_low_hz = value,
         Param::PropHigh => settings.prop_noise.center_high_hz = value,
+        Param::PropQ => settings.prop_noise.q = value,
         Param::BladeDepth => settings.prop_noise.blade_mod_depth = value,
         Param::WindGain => settings.wind.gain = value,
         Param::WindRef => settings.wind.speed_ref_kmh = value,
@@ -455,6 +481,7 @@ pub fn set(settings: &mut SoundSettings, param: Param, value: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flight_replay_core::synth::MOTOR_PRESETS;
 
     #[test]
     fn every_parameter_reads_back_what_was_set_and_the_defaults_are_in_range() {
@@ -488,7 +515,25 @@ mod tests {
                 a.label
             );
         }
-        assert_eq!(SPECS.len(), 27);
+        assert_eq!(SPECS.len(), 29);
+    }
+
+    #[test]
+    fn every_motor_preset_fits_in_the_sliders() {
+        for preset in MOTOR_PRESETS {
+            let settings = preset.settings();
+            for spec in SPECS {
+                let value = get(&settings, spec.param);
+                assert!(
+                    (spec.min..=spec.max).contains(&value),
+                    "{}: {} is {value}, outside {}..{}",
+                    preset.name,
+                    spec.label,
+                    spec.min,
+                    spec.max
+                );
+            }
+        }
     }
 
     #[test]

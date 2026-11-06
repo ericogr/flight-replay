@@ -17,6 +17,34 @@ The sound is synthesized from the telemetry in the `.osd` file. It is a port of 
 Only the throttle is required. A signal the recording does not have is reported, with what it costs the sound
 (`SignalSet::warnings`).
 
+## Motor presets
+
+The sound step offers ready-made sounds for different electric motors and propellers (`MOTOR_PRESETS`, in
+`crates/core/src/synth/presets.rs`). Choosing one is a starting point: every value it sets can still be changed.
+
+| Preset | What it models |
+|--------|----------------|
+| Default | The sound the program starts with: a two-blade propeller, a warm mid-range tone |
+| Small park flyer | A small propeller turning fast: high and thin, some whine, quick response |
+| Sport plane, three blades | A higher blade pass, a rounder tone and broader air noise |
+| Aerobatic power | A big motor on a short propeller: hard, bright and buzzy, answers the throttle at once |
+| Large slow propeller | Long-range plane or motor glider: deep and rich, chops the air, slow to follow |
+| Pusher behind the wing | The same motor, dull and muffled |
+| Ducted fan | A high whine over a hiss, almost no beat of the blades |
+
+A preset sets the **character** of the sound: the pitch range (`motor.f_idle_hz`, `f_max_hz`, `throttle_curve`), the
+inertia of the pitch and of the volume, the whole `tone` and the whole `prop_noise`. It leaves alone what belongs to
+the aircraft and the recording: the audio format and the master gain, the columns, the current that gives full
+volume, the battery correction, the wind and the G-force effect. After a preset the sound list says "Custom" as soon
+as one of those values is changed by hand. The harmonics list is the one part of a preset that has no slider; it is
+in `settings.toml` (`sound.tone.harmonics`).
+
+To add a preset, write a function that builds a `SoundSettings` and add a row to `MOTOR_PRESETS`. The tests
+(`crates/core/tests/presets.rs`) check that it is valid at 44.1 and 48 kHz, that its level on a throttle sweep is
+within 1.5 dB of the default and does not reach the limiter, that it differs by at least 3 dB from every other preset
+in some octave band, and (in the window) that every value fits its slider. They cannot tell whether it sounds right:
+that is for the ear.
+
 ## Properties
 
 - **The motor is off a good part of the time**, mostly in flight (gliding). At a throttle at or below

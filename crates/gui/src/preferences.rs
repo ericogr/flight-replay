@@ -32,6 +32,8 @@ pub struct Preferences {
     pub theme: ThemeChoice,
     /// The folder the last video was opened from.
     pub last_video_dir: Option<PathBuf>,
+    /// Show the FFmpeg command on the last step, before the render. Off until the user asks for it.
+    pub show_command: bool,
 }
 
 /// The file as it is read: the preferences, then the settings of the render.
@@ -88,6 +90,7 @@ mod tests {
         let preferences = Preferences {
             theme: ThemeChoice::Dark,
             last_video_dir: Some(PathBuf::from("/flights")),
+            show_command: true,
         };
 
         save(&path, &settings, &preferences).unwrap();
@@ -118,5 +121,14 @@ mod tests {
         assert_eq!(preferences.last_video_dir, Some(PathBuf::from("/old")));
         assert!(settings.draw_srt);
         assert_eq!(settings.output.bitrate_mbps, 12);
+        assert!(
+            !preferences.show_command,
+            "a file without the key does not show the command"
+        );
+    }
+
+    #[test]
+    fn the_command_is_hidden_until_the_user_asks_for_it() {
+        assert!(!Preferences::default().show_command);
     }
 }

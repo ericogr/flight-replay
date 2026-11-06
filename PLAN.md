@@ -288,9 +288,9 @@ reads the state.
 | 2 | Input | Pick or drag the video. Auto-discover `.osd`, `.srt` and font. Video information. Firmware from the `.osd`. Warnings for missing files. | no |
 | 3 | Video overlay | Enable OSD. Font. Position, centring, masks (drawn on the preview), latency correction. Frame preview with a time slider. | yes (audio only) |
 | 4 | SRT data | Enable SRT. Fields. Position. Size. Preview. | yes |
-| 5 | Motor sound | Enable sound. Profile (INAV, Betaflight, or not available). Preset. Coverage report. Synchronisation (scale, offset, probe). Parameters, grouped and collapsed. Audio preview. | yes (overlay only) |
+| 5 | Motor sound | Enable sound. Profile (INAV, Betaflight, or not available). Motor preset (ready-made sounds for kinds of motor and propeller) and saved presets. Coverage report. Synchronisation (scale, offset, probe). Parameters, grouped and collapsed. Audio preview. | yes (overlay only) |
 | 6 | Output | Container. Video: copy or encoder, bitrate, 1440p upscale, chroma key. Audio: AAC bitrate, sample rate, channels, gain. Output path. Overwrite policy. | no |
-| 7 | Review and render | Summary. FFmpeg command line, copyable. Start, progress with an estimate, cancel, open folder when done. | no |
+| 7 | Review and render | Summary. FFmpeg command line, copyable, shown only when the user ticks the option (off by default). Start, progress with an estimate, cancel, open folder when done. | no |
 
 Rules:
 
@@ -735,3 +735,16 @@ These do not block P0. The defaults are used unless the owner changes them.
     tests; the duplicated `audio_playing` flag, `LoadedOsd::path` and several copies of the same helpers are gone.
   - The GUI tests use the software renderer (`.cargo/config.toml`): with the GPU renderer one run in five crashed.
   - New `docs/architecture.md`.
+- Revision 10, 2026-11-06: motor presets and the FFmpeg command made optional.
+  - Seven built-in motor presets (`synth::MOTOR_PRESETS`): the default and six kinds of electric motor and propeller.
+    A preset sets the character of the sound (pitch range, inertia, tone, propeller noise) and leaves the format, the
+    columns, the load calibration, the wind and the battery as the user has them. The sound step reads which preset is
+    in use from the settings, so it is right after a restart and says "Custom" after a change by hand. The saved
+    presets (the user's own, whole `SoundSettings`) are unchanged. The levels were balanced by measuring the RMS of a
+    throttle sweep (all within 0.4 dB of the default), and `crates/core/tests/presets.rs` keeps them within 1.5 dB,
+    below the limiter, and different from each other by 3 dB or more in an octave band. Two sliders were added
+    because presets vary what had none: the whine pitch and the sharpness of the propeller noise.
+  - The FFmpeg command of step 7 is shown only when `Preferences::show_command` is on. It is off by default, kept in
+    `settings.toml` with the other preferences, and a file from an earlier version reads as off.
+  - Not done: the harmonics of a preset have no slider; a multirotor (four motors at once) is not modelled; and the
+    presets were not listened to, only measured.

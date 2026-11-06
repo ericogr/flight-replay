@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 EricoGR
 
+use flight_replay_core::synth::{MOTOR_PRESETS, motor_preset_in_use};
 use flight_replay_core::telemetry::{DEFAULT_PROBE_COLUMNS, probe_at};
 use iced::Element;
 use iced::Length;
@@ -105,7 +106,50 @@ fn listen(app: &FlightReplay) -> Element<'_, Message> {
     items.into()
 }
 
+/// A kind of motor and propeller in the list, by its place in [`MOTOR_PRESETS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MotorChoice(usize);
+
+impl std::fmt::Display for MotorChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(MOTOR_PRESETS[self.0].name)
+    }
+}
+
 fn presets(app: &FlightReplay) -> Element<'_, Message> {
+    column![motor_presets(app), saved_presets(app)]
+        .spacing(16)
+        .into()
+}
+
+/// What the sound step says when the values no longer are those of a kind of motor.
+pub const CUSTOM_SOUND_HINT: &str = "Custom: some values were changed by hand. Choosing a kind of motor sets the pitch, the inertia, the tone and the propeller noise, and keeps the rest.";
+
+/// The sounds that come with the program, one for each kind of motor and propeller. What is chosen is read back from
+/// the settings, so it is right after a restart, and it says "Custom" as soon as a value is changed by hand.
+fn motor_presets(app: &FlightReplay) -> Element<'_, Message> {
+    let in_use = motor_preset_in_use(&app.settings.sound);
+    let choices: Vec<MotorChoice> = (0..MOTOR_PRESETS.len()).map(MotorChoice).collect();
+    let explanation = match in_use {
+        Some(index) => MOTOR_PRESETS[index].description,
+        None => CUSTOM_SOUND_HINT,
+    };
+    column![
+        labeled(
+            "Motor and propeller",
+            pick_list(choices, in_use.map(MotorChoice), |choice| {
+                Message::Sound(SoundEdit::MotorPreset(choice.0))
+            })
+            .placeholder("Custom"),
+        ),
+        hint(explanation),
+    ]
+    .spacing(6)
+    .into()
+}
+
+/// The settings the user saved under a name.
+fn saved_presets(app: &FlightReplay) -> Element<'_, Message> {
     let names: Vec<String> = app.settings.presets.keys().cloned().collect();
     let has_saved = !names.is_empty();
     column![

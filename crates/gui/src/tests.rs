@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools, probe};
 use flight_replay_core::osd::Coverage;
+use flight_replay_core::synth::{MOTOR_PRESETS, SoundSettings, motor_preset_in_use};
 use iced::Task;
 use iced::futures::StreamExt;
 use iced_runtime::Action;
@@ -20,11 +21,13 @@ use image::{Rgba, RgbaImage};
 use tempfile::TempDir;
 
 use crate::app::{FlightReplay, ToolsState};
-use crate::message::{Message, OutputEdit};
+use crate::message::{Message, OutputEdit, SoundEdit};
 use crate::preferences::ThemeChoice;
+use crate::sound_params::Param;
 use crate::state::{FileKind, QueueStatus, RenderState};
 use crate::tasks;
 use crate::view;
+use crate::view::sound::CUSTOM_SOUND_HINT;
 use crate::wizard::Step;
 
 /// The application, driven the way the user would.
@@ -315,6 +318,96 @@ fn every_step_is_walked_and_the_video_is_rendered() {
         .filter(|(a, b)| a[..3].iter().zip(&b[..3]).any(|(x, y)| x.abs_diff(*y) > 40))
         .count();
     assert!(changed > 2_000, "the OSD is drawn: {changed} pixels differ");
+}
+
+#[test]
+fn the_ffmpeg_command_is_shown_only_when_the_user_asks_for_it() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let font = app.path("font.png");
+    write_font(&font);
+    app.send(Message::FileDropped(fixture("clip-3s.mp4")));
+    app.send(Message::FileDropped(font));
+    let output = app.path("out.mp4");
+    app.send(Message::Output(OutputEdit::Path(
+        output.display().to_string(),
+    )));
+    app.send(Message::GoTo(Step::Render));
+    assert_eq!(app.app.step, Step::Render);
+
+    let option = "Show the FFmpeg command before rendering";
+    assert!(app.shows(option), "the option is on the last step");
+    assert!(!app.app.preferences.show_command, "it is off at first");
+    let line = app
+        .app
+        .command_lines
+        .first()
+        .expect("the command is ready")
+        .clone();
+    assert!(!app.shows(&line), "so the command is not on the screen");
+    assert!(!app.shows("Copy"), "nor the button to copy it");
+    app.snapshot("7-render-command-hidden");
+
+    app.click(option);
+    assert!(app.app.preferences.show_command);
+    assert!(app.shows(&line), "the command is on the screen");
+    assert!(app.shows("Copy"), "with the button to copy it");
+    app.snapshot("7-render-command-shown");
+    let saved = std::fs::read_to_string(app.path("settings.toml")).expect("the settings are saved");
+    assert!(saved.contains("show_command = true"), "{saved}");
+
+    app.click(option);
+    assert!(!app.app.preferences.show_command);
+    assert!(!app.shows(&line), "the command is hidden again");
+}
+
+#[test]
+fn a_motor_preset_changes_the_sound_and_every_value_can_still_be_changed() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let font = app.path("font.png");
+    write_font(&font);
+    app.send(Message::FileDropped(fixture("clip-3s.mp4")));
+    app.send(Message::FileDropped(font));
+    app.send(Message::GoTo(Step::Sound));
+    assert_eq!(app.app.step, Step::Sound);
+    assert_eq!(motor_preset_in_use(&app.app.settings.sound), Some(0));
+    assert!(
+        app.shows(MOTOR_PRESETS[0].description),
+        "the default is the one chosen"
+    );
+
+    app.send(Message::Sound(SoundEdit::SampleRate(44_100)));
+    let slow = MOTOR_PRESETS
+        .iter()
+        .position(|p| p.name == "Large slow propeller")
+        .expect("a preset of a large propeller");
+    app.send(Message::Sound(SoundEdit::MotorPreset(slow)));
+    let sound = &app.app.settings.sound;
+    assert_eq!(motor_preset_in_use(sound), Some(slow));
+    assert_eq!(sound, &{
+        let mut expected = SoundSettings::default();
+        expected.audio.sample_rate = 44_100;
+        MOTOR_PRESETS[slow].apply(&mut expected);
+        expected
+    });
+    assert_eq!(sound.audio.sample_rate, 44_100, "the format is kept");
+    assert!(
+        app.shows(MOTOR_PRESETS[slow].description),
+        "the kind of motor is described"
+    );
+    app.snapshot("5-sound-preset");
+
+    // A value changed by hand is accepted, and the preset is no longer the one in use.
+    app.send(Message::Sound(SoundEdit::Param(Param::FMaxHz, 300.0)));
+    assert!((app.app.settings.sound.motor.f_max_hz - 300.0).abs() < 1e-9);
+    assert_eq!(motor_preset_in_use(&app.app.settings.sound), None);
+    assert!(app.shows(CUSTOM_SOUND_HINT), "the screen says so");
+
+    app.send(Message::Sound(SoundEdit::MotorPreset(0)));
+    assert_eq!(motor_preset_in_use(&app.app.settings.sound), Some(0));
 }
 
 /// The clip played twice, as one video of about six seconds, in the folder of the harness.

@@ -13,7 +13,8 @@ wizard for Linux, Windows and macOS.
 - **The SRT data on the picture.** Signal, latency, bitrate, distance, battery and time, where you want them.
 - **A motor sound.** The telemetry is read from the OSD screens (throttle, current, battery voltage, and the speed,
   roll and pitch when the OSD shows them), and drives a synthesized motor, propeller and wind sound. Every parameter
-  can be changed, listened to, and saved as a preset. See [docs/audio-model.md](docs/audio-model.md).
+  can be changed, listened to, and saved as a preset. Seven ready-made sounds, for different electric motors and
+  propellers, are the starting point. See [docs/audio-model.md](docs/audio-model.md).
 - **Encoding.** libx264, libx265 and the hardware encoders FFmpeg has on your machine (NVENC, QSV, AMF,
   VideoToolbox, VAAPI), found by a test encode. Optional 1440p scaling, and a green background for compositing in an
   editor. With only the sound, the picture is copied as it is.
@@ -51,10 +52,12 @@ winget install Gyan.FFmpeg   # Windows
    `WS_INAV_Europa_24.png`. Flight Replay does not include one.
 3. **OSD.** Check the position on the preview, centre it, mask elements by clicking them, and correct the timing.
 4. **SRT data.** Choose the fields and where they go.
-5. **Motor sound.** See what the recording gives the sound, change the parameters, and listen to a moment of the
-   flight: the picture and the OSD follow the sound, so you can check the timing by eye.
+5. **Motor sound.** See what the recording gives the sound, choose the kind of motor and propeller, change the
+   parameters, and listen to a moment of the flight: the picture and the OSD follow the sound, so you can check the
+   timing by eye.
 6. **Output.** Encoder, bitrate, 1440p, file name. You can render only a stretch first, as a quick test.
-7. **Render.** The summary, the FFmpeg commands that will run, and the progress. The queue is here too.
+7. **Render.** The summary and the progress. The queue is here too. Tick "Show the FFmpeg command before rendering"
+   to see, and copy, the commands that will run; it is off until you ask for it.
 
 A video can also be given on the command line: `flight-replay video.mp4`. The settings are saved when you leave a
 step and when you close the window.
