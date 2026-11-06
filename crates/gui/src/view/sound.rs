@@ -7,7 +7,7 @@ use iced::Element;
 use iced::Length;
 use iced::widget::{checkbox, column, pick_list, row, text, text_input};
 
-use super::preview_view::{preview_block, sync_block};
+use super::preview_view::{play_controls, play_quality_note, preview_block, sync_block};
 use super::widgets::{action, good, hint, labeled, page, problem, section, slider_row};
 use crate::app::FlightReplay;
 use crate::message::{Message, SoundEdit};
@@ -86,31 +86,15 @@ fn turn_on_hint<'a>(elements: &[&str]) -> Element<'a, Message> {
 
 fn listen(app: &FlightReplay) -> Element<'_, Message> {
     let can_play = app.signals().is_some() && !app.busy.audio && !app.is_playing();
-    let controls = row![
-        action(
-            "Play 10 seconds from here",
-            can_play.then_some(Message::PlayAudio)
-        ),
-        action("Stop", app.is_playing().then_some(Message::StopAudio)),
-        text(if app.busy.audio {
-            "Making the sound…"
-        } else if app.is_playing() {
-            "Playing…"
-        } else {
-            ""
-        }),
-    ]
-    .spacing(10);
-
     let mut items = column![
-        hint("Choose the moment on the slider, then listen. While the sound plays, the picture and the OSD follow it, a few times a second."),
+        hint(format!(
+            "Choose the moment on the slider, then listen. While the sound plays, the picture follows it, with the OSD and the SRT data if they are shown. {}",
+            play_quality_note()
+        )),
         preview_block(app, false),
-        controls,
+        play_controls(app, can_play.then_some(Message::PlayAudio)),
     ]
     .spacing(10);
-    if let Some(error) = &app.audio_error {
-        items = items.push(problem(error.clone()));
-    }
     if let (Some(telemetry), Some(timeline)) = (&app.telemetry, app.timeline()) {
         let report = probe_at(
             &telemetry.recording.table,

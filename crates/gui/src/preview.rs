@@ -36,19 +36,25 @@ pub struct SrtPreview {
     pub options: SrtOptions,
 }
 
+/// What a picture is made from: the video, and the layers that are drawn on it.
+#[derive(Debug, Clone)]
+pub struct Scene {
+    pub tools: Arc<Tools>,
+    pub video: PathBuf,
+    pub info: VideoInfo,
+    pub osd: Option<OsdPreview>,
+    pub srt: Option<SrtPreview>,
+    pub timeline: Option<Timeline>,
+}
+
 /// What to draw.
 #[derive(Debug, Clone)]
 pub struct PreviewRequest {
     pub sequence: u64,
-    pub tools: Arc<Tools>,
-    pub video: PathBuf,
-    pub info: VideoInfo,
+    pub scene: Scene,
     pub time_s: f64,
     /// The frame of an earlier preview, when it is from the same time. It saves decoding the video again.
     pub base: Option<(f64, Arc<RgbaImage>)>,
-    pub osd: Option<OsdPreview>,
-    pub srt: Option<SrtPreview>,
-    pub timeline: Option<Timeline>,
     /// Show the grid of the OSD, with the hidden cells marked.
     pub show_grid: bool,
 }
@@ -70,36 +76,18 @@ pub fn make(request: &PreviewRequest) -> Result<PreviewResult, String> {
     };
 
     let mut canvas = (*base).clone();
-    if let Some(osd) = &request.osd
-        && let Some(timeline) = request.timeline
+    Layers::new(&request.scene, 1.0)?.draw(&mut canvas, request.time_s);
+    if request.show_grid
+        && let Some(osd) = &request.scene.osd
     {
-        let frame = timeline.osd_frame(&osd.file, request.time_s);
-        draw_osd(&mut canvas, frame, &osd.font, &osd.options);
-        if request.show_grid {
-            draw_grid(&mut canvas, &osd.file, &osd.font, &osd.options);
-        }
-    }
-    if let Some(srt) = &request.srt
-        && let Some(data) = srt
-            .file
-            .cue_at(request.time_s)
-            .and_then(|cue| cue.data.as_ref())
-    {
-        let font = FontRef::try_from_slice(SRT_FONT).map_err(|e| e.to_string())?;
-        draw_srt(&mut canvas, data, &font, &srt.options);
+        draw_grid(&mut canvas, &osd.file, &osd.font, &osd.options);
     }
 
-    let shown = if canvas.width() > MAX_WIDTH {
-        let height =
-            (u64::from(canvas.height()) * u64::from(MAX_WIDTH) / u64::from(canvas.width())) as u32;
-        imageops::resize(
-            &canvas,
-            MAX_WIDTH,
-            height.max(1),
-            imageops::FilterType::Triangle,
-        )
-    } else {
+    let (width, height) = shown_size(canvas.width(), canvas.height());
+    let shown = if (width, height) == canvas.dimensions() {
         canvas
+    } else {
+        imageops::resize(&canvas, width, height, imageops::FilterType::Triangle)
     };
     Ok(PreviewResult {
         base: (request.time_s, base),
@@ -107,17 +95,89 @@ pub fn make(request: &PreviewRequest) -> Result<PreviewResult, String> {
     })
 }
 
+/// The size of the picture shown for a video of this size: a wider video is scaled down to [`MAX_WIDTH`], and a
+/// narrower one is not scaled up.
+pub fn shown_size(width: u32, height: u32) -> (u32, u32) {
+    if width <= MAX_WIDTH {
+        return (width, height);
+    }
+    let scaled = u64::from(height) * u64::from(MAX_WIDTH) / u64::from(width);
+    (MAX_WIDTH, (scaled as u32).max(1))
+}
+
+/// The layers of a [`Scene`], ready to be drawn on frames of one size.
+pub struct Layers {
+    osd: Option<OsdPreview>,
+    srt: Option<SrtPreview>,
+    srt_font: FontRef<'static>,
+    timeline: Option<Timeline>,
+}
+
+impl Layers {
+    /// The layers for frames `factor` times the size of the video: 1 for the video itself. For a smaller picture the
+    /// glyphs of the OSD are made smaller once, and its offsets shrink with them, so that the OSD is where it is on
+    /// the video.
+    pub fn new(scene: &Scene, factor: f64) -> Result<Self, String> {
+        let osd = scene.osd.as_ref().map(|osd| {
+            if (factor - 1.0).abs() < f64::EPSILON {
+                return osd.clone();
+            }
+            OsdPreview {
+                file: Arc::clone(&osd.file),
+                font: Arc::new(osd.font.resized(factor)),
+                options: shrink_offsets(&osd.options, factor),
+            }
+        });
+        Ok(Self {
+            osd,
+            srt: scene.srt.clone(),
+            srt_font: FontRef::try_from_slice(SRT_FONT).map_err(|e| e.to_string())?,
+            timeline: scene.timeline,
+        })
+    }
+
+    /// Draws the OSD and the SRT data of video time `time_s` on the frame.
+    pub fn draw(&self, canvas: &mut RgbaImage, time_s: f64) {
+        if let (Some(osd), Some(timeline)) = (&self.osd, self.timeline) {
+            draw_osd(
+                canvas,
+                timeline.osd_frame(&osd.file, time_s),
+                &osd.font,
+                &osd.options,
+            );
+        }
+        if let Some(srt) = &self.srt
+            && let Some(data) = srt.file.cue_at(time_s).and_then(|cue| cue.data.as_ref())
+        {
+            draw_srt(canvas, data, &self.srt_font, &srt.options);
+        }
+    }
+}
+
+/// The options of the OSD for a picture `factor` times the size of the video: the offsets shrink, and the hidden
+/// cells stay the same.
+fn shrink_offsets(options: &OsdOptions, factor: f64) -> OsdOptions {
+    let shrink = |pixels: i32| (f64::from(pixels) * factor).round() as i32;
+    OsdOptions {
+        x_offset: shrink(options.x_offset),
+        y_offset: shrink(options.y_offset),
+        masked_cells: options.masked_cells.clone(),
+    }
+}
+
 fn decode_frame(request: &PreviewRequest) -> Result<RgbaImage, String> {
-    let info = &request.info;
+    let scene = &request.scene;
+    let info = &scene.info;
     let mut reader = FrameReader::open(
-        &request.tools,
-        &request.video,
+        &scene.tools,
+        &scene.video,
         &DecodeOptions {
             width: info.width,
             height: info.height,
             start_s: request.time_s,
             duration_s: Some(2.0 / info.nominal_frame_rate),
             constant_rate: None,
+            scale_to: None,
         },
     )
     .map_err(|e| e.to_string())?;
@@ -146,8 +206,8 @@ pub struct Grid {
 impl Grid {
     pub fn new(osd: &OsdFile, font: &ScaledFont, options: &OsdOptions) -> Self {
         Self {
-            cell_width: font.size().width(),
-            cell_height: font.size().height(),
+            cell_width: font.cell_width(),
+            cell_height: font.cell_height(),
             x_offset: options.x_offset,
             y_offset: options.y_offset,
             columns: osd.columns,
@@ -227,6 +287,8 @@ fn draw_grid(canvas: &mut RgbaImage, osd: &OsdFile, font: &ScaledFont, options: 
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     fn grid() -> Grid {
@@ -273,6 +335,36 @@ mod tests {
             None,
             "below the last row"
         );
+    }
+
+    #[test]
+    fn a_wide_video_is_shown_at_the_limit_and_a_narrow_one_as_it_is() {
+        assert_eq!(shown_size(1920, 1080), (640, 360));
+        assert_eq!(shown_size(1280, 720), (640, 360));
+        assert_eq!(shown_size(3840, 2160), (640, 360));
+        assert_eq!(
+            shown_size(2704, 1520),
+            (640, 359),
+            "the height is rounded down"
+        );
+        assert_eq!(shown_size(640, 480), (640, 480), "at the limit");
+        assert_eq!(shown_size(320, 240), (320, 240), "never made larger");
+        assert_eq!(shown_size(10_000, 1), (640, 1), "never less than a pixel");
+    }
+
+    #[test]
+    fn the_offsets_of_the_osd_shrink_with_the_picture_and_the_hidden_cells_stay() {
+        let options = OsdOptions {
+            x_offset: 30,
+            y_offset: -9,
+            masked_cells: BTreeSet::from([(1, 2), (5, 0)]),
+        };
+        let third = shrink_offsets(&options, 1.0 / 3.0);
+        assert_eq!((third.x_offset, third.y_offset), (10, -3));
+        assert_eq!(third.masked_cells, options.masked_cells);
+        // A fraction of a pixel is rounded to the nearest pixel.
+        let odd = shrink_offsets(&options, 0.35);
+        assert_eq!((odd.x_offset, odd.y_offset), (11, -3));
     }
 
     #[test]

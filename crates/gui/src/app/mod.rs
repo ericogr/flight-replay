@@ -9,14 +9,14 @@
 //! - `files`: opening, replacing and clearing the video and the files that go with it
 //! - `options`: what to draw, how to encode, and the other choices of the steps
 //! - `picture`: the preview picture
-//! - `listen`: the sound preview
+//! - `play`: the preview in motion, with the sound or without it
 //! - `rendering`: the plan of the render, and running it
 //! - `queue`: several videos, one after the other
 
 mod files;
-mod listen;
 mod options;
 mod picture;
+mod play;
 mod queue;
 mod rendering;
 
@@ -31,7 +31,6 @@ use flight_replay_core::synth::SignalSet;
 use flight_replay_core::timeline::Timeline;
 use iced::{Subscription, Task, Theme};
 
-use crate::audio::AudioPlayer;
 use crate::message::Message;
 use crate::preferences::{self, Preferences, ThemeChoice};
 use crate::state::{
@@ -40,6 +39,7 @@ use crate::state::{
 };
 use crate::tasks;
 use crate::wizard::{self, Context, Step};
+use play::Playing;
 
 /// The state of the search for FFmpeg.
 pub enum ToolsState {
@@ -92,8 +92,10 @@ pub struct FlightReplay {
 
     pub preset_name: String,
     pub selected_preset: Option<String>,
-    audio: Option<AudioPlayer>,
-    pub audio_error: Option<String>,
+    /// The preview that is playing: the clock, the picture, and the sound if the step has one.
+    playing: Option<Playing>,
+    /// Why the preview could not play.
+    pub play_error: Option<String>,
 
     pub output_path: String,
     pub overwrite: bool,
@@ -146,8 +148,8 @@ impl FlightReplay {
             preview: Preview::default(),
             preset_name: String::new(),
             selected_preset: None,
-            audio: None,
-            audio_error: None,
+            playing: None,
+            play_error: None,
             output_path: String::new(),
             overwrite: false,
             replace_audio: false,
@@ -412,6 +414,7 @@ impl FlightReplay {
             }
 
             // the preview picture
+            Message::ShowOtherLayers(on) => self.set_show_other_layers(on),
             Message::PreviewTime(seconds) => self.set_preview_time(seconds),
             Message::PreviewTimeReleased => self.refresh_preview_if_open(),
             Message::PreviewReady(sequence, result) => self.preview_ready(sequence, result),
@@ -425,11 +428,14 @@ impl FlightReplay {
             }
             Message::PreviewPressed => self.preview_pressed(),
 
-            // the sound preview
+            // the preview in motion
             Message::PlayAudio => self.play_audio(),
             Message::AudioRendered(result) => self.audio_rendered(result),
-            Message::StopAudio => self.stop_audio(),
-            Message::AudioTick => self.audio_tick(),
+            Message::PlayPicture => self.play_picture(),
+            Message::StopPlay => self.stop_play(),
+            Message::PlayTick(play) => self.play_tick(play),
+            Message::PlayFrame(stream, result) => self.play_frame(stream, result),
+            Message::RestartPlayback { play, edit } => self.playback_restart_due(play, edit),
 
             // the queue
             Message::QueueAdd => self.queue_add(),
@@ -478,17 +484,26 @@ impl FlightReplay {
         if self.is_rendering() || !wizard::can_go_to(self.step, target, &self.context()) {
             return Task::none();
         }
+        let leaving = target != self.step;
         self.step = target;
         self.save_settings();
-        if matches!(target, Step::Overlay | Step::Srt | Step::Sound)
-            && self.preview.handle.is_none()
+        // What plays belongs to the step it was started in.
+        let stopped = if leaving {
+            self.play_error = None;
+            self.stop_play()
+        } else {
+            Task::none()
+        };
+        // The picture is made again when there is none, or when this step draws other layers than the last one did.
+        if target.has_preview()
+            && (self.preview.handle.is_none() || self.preview.layers != self.layers_wanted())
         {
-            return self.refresh_preview_if_open();
+            return Task::batch([stopped, self.refresh_preview_if_open()]);
         }
         if target == Step::Render {
             self.refresh_command_lines();
         }
-        Task::none()
+        stopped
     }
 
     fn tools_located(&mut self, result: Result<Arc<Tools>, String>) -> Task<Message> {
@@ -544,6 +559,12 @@ impl FlightReplay {
         self.preferences.theme = theme;
         self.save_settings();
         Task::none()
+    }
+
+    fn set_show_other_layers(&mut self, on: bool) -> Task<Message> {
+        self.preferences.show_other_layers = on;
+        self.save_settings();
+        self.refresh_preview_if_open()
     }
 
     fn set_show_command(&mut self, on: bool) -> Task<Message> {

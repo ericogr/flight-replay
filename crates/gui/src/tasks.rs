@@ -281,10 +281,10 @@ pub fn open_folder(folder: &Path) {
     }
 }
 
-/// Sends [`Message::AudioTick`] after a while, so the picture can follow the sound that is playing.
-pub fn audio_tick_after(milliseconds: u64) -> Task<Message> {
+/// Sends `message` after `milliseconds`.
+pub fn after(milliseconds: u64, message: Message) -> Task<Message> {
     Task::perform(
         blocking(move || std::thread::sleep(std::time::Duration::from_millis(milliseconds))),
-        |_| Message::AudioTick,
+        move |_| message,
     )
 }

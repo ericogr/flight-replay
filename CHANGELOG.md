@@ -23,12 +23,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   still be changed, and the sound list says "Custom" when one was. Two more sliders, the whine pitch and the sharpness
   of the propeller noise.
 - An option to show the FFmpeg command before rendering.
-- OSD fonts that come with the program: the default font of INAV (GPL-3.0) and the Material OSD font for Betaflight
-  (CC BY-SA 4.0), each with a sheet for 720p and one for 1080p. The input step has a list of them next to the choice
-  of a file, remembers the choice, shows the credit of the font, and warns when the font is for another firmware than
-  the `.osd` file. A video, or each video of a folder, is drawn with the sheet nearest to its size. The sheets, their
-  licenses and where they come from are in `assets/osd-fonts/`; fonts whose license does not allow redistribution are
-  left out, and the README there says which and why. The release archives carry the license texts.
+- Play and Stop in the OSD step and in the SRT data step: ten seconds of the video from the time on the slider, with
+  the OSD or the SRT data drawn on it, to check the layer in motion. It has no sound; the motor sound keeps its own
+  step.
+- "Also show the SRT data in the preview" in the step of the OSD, "Also show the OSD in the preview" in the step of
+  the SRT data and "Also show the SRT and OSD data in the preview" in the step of the sound. It is on, so every
+  preview shows all the layers as the render will draw them. Switched off, each step shows only its own layer (the
+  OSD, or the SRT data) and the step of the sound shows none, in the picture and when it plays. The choice is
+  remembered. It does not change what is rendered.
 
 ### Changed
 
@@ -43,11 +45,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   ticked. It is off by default.
 - The picture and the OSD follow the sound while the sound preview plays, and the preview stops at the end of the
   video. It used to stay on one frame, and play past the end.
+- The picture of the sound preview plays as a stream instead of being asked for four times a second: one FFmpeg
+  process decodes the stretch already shrunk to the size of the preview, and each frame is shown when the sound gets
+  to it, at up to 30 frames per second. It used to start FFmpeg for every picture, so it looked slow. The preview
+  says that its quality is reduced, under the picture and in the sound step; the render is not affected.
+- A preview that plays stops when the user moves to another step, and the sound no longer goes on in the steps after
+  the sound step. A change made while it plays (a position, a field, the timing) shows after a short moment, when
+  the picture starts again from where it is.
 - The colour scheme and the last folder are kept by the window and not by the core library. The same
   `settings.toml` is used, and files written by earlier versions are read as before.
 
 ### Fixed
 
+- The grid of the OSD cells (the one for hiding elements by clicking) stayed on the previews of the SRT data step and
+  of the sound step when the choice of hiding elements was left on. It is on the picture of the OSD step only.
+- A motor sound that finished being made after the user had moved to another step started playing there. It is
+  not played.
 - A video with no `.osd` file, or with an OSD of a firmware without telemetry, could not go past the sound step: the
   sound was on by default and its box could not be unticked.
 - A picture could not be made at the very end of the video, so dragging the preview slider there showed an error.

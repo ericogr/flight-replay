@@ -18,6 +18,8 @@ use flight_replay_core::telemetry::{Profile, Recording};
 use flight_replay_core::timeline::{ScaleMode, SyncOptions};
 use iced::widget::image::Handle;
 
+use crate::wizard::PreviewLayers;
+
 /// A video that is open.
 #[derive(Debug)]
 pub struct LoadedVideo {
@@ -129,6 +131,16 @@ pub struct Preview {
     pub mask_mode: bool,
     /// The pointer, relative to the picture shown.
     pub hover: Option<iced::Point>,
+    /// What was drawn on the last picture that was asked for.
+    pub layers: PreviewLayers,
+}
+
+impl Preview {
+    /// Shows a picture: `pixels` are its RGBA bytes.
+    pub fn set_picture(&mut self, width: u32, height: u32, pixels: Vec<u8>) {
+        self.shown = (width, height);
+        self.handle = Some(Handle::from_rgba(width, height, pixels));
+    }
 }
 
 /// The state of a render.

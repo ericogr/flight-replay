@@ -14,8 +14,7 @@ use crate::osd::{Frame, OsdOptions};
 ///
 /// Cells that are masked in `options` are skipped. The grid is moved by the offsets of `options`.
 pub fn draw_osd(canvas: &mut RgbaImage, frame: &Frame, font: &ScaledFont, options: &OsdOptions) {
-    let cell_width = i64::from(font.size().width());
-    let cell_height = i64::from(font.size().height());
+    let (pitch_x, pitch_y) = font.pitch();
     for (x, y, code) in frame.glyphs() {
         if options.is_masked(x, y) {
             continue;
@@ -23,8 +22,8 @@ pub fn draw_osd(canvas: &mut RgbaImage, frame: &Frame, font: &ScaledFont, option
         let Some(glyph) = font.glyph(code) else {
             continue;
         };
-        let left = i64::from(x) * cell_width + i64::from(options.x_offset);
-        let top = i64::from(y) * cell_height + i64::from(options.y_offset);
+        let left = (f64::from(x) * pitch_x).round() as i64 + i64::from(options.x_offset);
+        let top = (f64::from(y) * pitch_y).round() as i64 + i64::from(options.y_offset);
         imageops::overlay(canvas, glyph, left, top);
     }
 }
@@ -76,6 +75,24 @@ mod tests {
         assert_eq!(canvas.get_pixel(24, 0)[0], 9);
         assert_eq!(canvas.get_pixel(48 + 5, 36 + 5)[0], 30);
         assert_eq!(canvas.get_pixel(0, 0)[0], 0);
+    }
+
+    #[test]
+    fn a_resized_font_puts_each_cell_where_it_is_on_the_video() {
+        // 0.35 of a 24x36 cell: the cells are 8.4 by 12.6 pixels apart, and the glyphs 8 by 13 pixels.
+        let font = font().resized(0.35);
+        let mut canvas = RgbaImage::from_pixel(60, 40, Rgba([0, 0, 0, 255]));
+        draw_osd(
+            &mut canvas,
+            &frame(&[((3, 0), 9), ((1, 1), 30)]),
+            &font,
+            &OsdOptions::default(),
+        );
+        // Cell 3 starts at 25 (3 x 8.4 rounded), not at 24 (3 x 8, the size of the picture).
+        assert_eq!(canvas.get_pixel(25 + 2, 3)[0], 9);
+        assert_eq!(canvas.get_pixel(24, 3)[0], 0);
+        // Cell (1, 1) starts at 8 across and 13 down.
+        assert_eq!(canvas.get_pixel(8 + 2, 13 + 3)[0], 30);
     }
 
     #[test]

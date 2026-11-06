@@ -4,7 +4,7 @@
 use iced::Element;
 use iced::widget::{checkbox, column};
 
-use super::preview_view::preview_block;
+use super::preview_view::{picture_controls, preview_block};
 use super::widgets::{hint, page, section, slider_row};
 use crate::app::FlightReplay;
 use crate::message::{Message, SrtEdit};
@@ -78,7 +78,14 @@ pub fn view(app: &FlightReplay) -> Element<'_, Message> {
             "{reason} Go back to the Input step to choose one, or go on: the video is then rendered without the SRT data."
         )));
     }
-    items.push(section("Preview", preview_block(app, false)));
+    items.push(section(
+        "Preview",
+        column![
+            preview_block(app, false),
+            picture_controls(app, "the SRT data")
+        ]
+        .spacing(10),
+    ));
     items.push(section("Fields", fields));
     items.push(section("Position and size", layout));
     page(items).into()

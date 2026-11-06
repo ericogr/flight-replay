@@ -4,13 +4,15 @@
 //! The preview picture with its time slider, and the controls of the timing, which several steps share.
 
 use iced::widget::{
-    column, container, image, mouse_area, pick_list, row, slider, text, text_input,
+    checkbox, column, container, image, mouse_area, pick_list, row, slider, text, text_input,
 };
 use iced::{Alignment, Element, Length};
 
-use super::widgets::{hint, labeled, problem, section};
+use super::widgets::{action, hint, labeled, problem, section};
 use crate::app::FlightReplay;
 use crate::message::{Message, SyncEdit};
+use crate::playback;
+use crate::preview::shown_size;
 use crate::state::ScaleChoice;
 use flight_replay_core::display::clock_tenths;
 
@@ -54,8 +56,28 @@ pub fn preview_block(app: &FlightReplay, masks: bool) -> Element<'_, Message> {
         None => hint("No picture yet."),
     };
 
-    let mut items = column![container(picture).center_x(Length::Fill), time].spacing(8);
-    // While the sound plays the picture is made again and again, and a note that comes and goes would shift the
+    // The preview shows all the layers, as the render will draw them. The user can ask for only the layer of the step.
+    let other_layers = checkbox(app.preferences.show_other_layers)
+        .label(format!(
+            "Also show the {} in the preview",
+            app.step.other_layers_name()
+        ))
+        .on_toggle(Message::ShowOtherLayers);
+    let mut items = column![
+        container(picture).center_x(Length::Fill),
+        time,
+        other_layers
+    ]
+    .spacing(8);
+    // The picture is a preview. Saying so keeps it from being taken for what the render will give.
+    let (width, height) = shown_size(video.info.width, video.info.height);
+    if width != video.info.width {
+        items = items.push(hint(format!(
+            "Preview at reduced quality: {width}×{height}, while the video is {}×{}. The video you render keeps its full quality.",
+            video.info.width, video.info.height
+        )));
+    }
+    // While the preview plays the picture is made again and again, and a note that comes and goes would shift the
     // controls below it.
     if app.preview.busy && app.preview.handle.is_some() && !app.is_playing() {
         items = items.push(hint("Updating…"));
@@ -64,6 +86,53 @@ pub fn preview_block(app: &FlightReplay, masks: bool) -> Element<'_, Message> {
         items = items.push(problem(format!("The preview could not be made: {error}")));
     }
     items.into()
+}
+
+/// Says that the picture is shown at reduced quality while it plays. Every step that plays it says so.
+pub fn play_quality_note() -> String {
+    format!(
+        "While it plays the picture is shown at reduced quality: at most {:.0} frames per second, and frames are skipped if the computer is too slow. The video you render is not affected.",
+        playback::MAX_FPS
+    )
+}
+
+/// Play and Stop, with what is going on and why the preview could not play. `play` is what the Play button sends, or
+/// `None` when it cannot be pressed.
+pub fn play_controls(app: &FlightReplay, play: Option<Message>) -> Element<'_, Message> {
+    let status = if app.busy.audio {
+        "Making the sound…"
+    } else if app.is_playing() {
+        "Playing…"
+    } else {
+        ""
+    };
+    let mut items = column![
+        row![
+            action("Play 10 seconds from here", play),
+            action("Stop", app.is_playing().then_some(Message::StopPlay)),
+            text(status),
+        ]
+        .spacing(10)
+    ]
+    .spacing(8);
+    if let Some(error) = &app.play_error {
+        items = items.push(problem(error.clone()));
+    }
+    items.into()
+}
+
+/// The picture played alone, without sound, to check the layer of the step in motion. `what` names the layer.
+pub fn picture_controls<'a>(app: &'a FlightReplay, what: &str) -> Element<'a, Message> {
+    let can_play = app.video.is_some() && !app.is_playing();
+    column![
+        hint(format!(
+            "Choose the moment on the slider, then play it to see {what} in motion. There is no sound here; the motor sound has its own step. {}",
+            play_quality_note()
+        )),
+        play_controls(app, can_play.then_some(Message::PlayPicture)),
+    ]
+    .spacing(8)
+    .into()
 }
 
 /// How the OSD is timed against the video.

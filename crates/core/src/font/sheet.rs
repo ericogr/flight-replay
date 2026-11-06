@@ -88,7 +88,11 @@ impl FontSheet {
                 })
                 .collect()
         };
-        ScaledFont { size, glyphs }
+        ScaledFont {
+            size,
+            pitch: (f64::from(size.width()), f64::from(size.height())),
+            glyphs,
+        }
     }
 }
 
@@ -96,14 +100,64 @@ impl FontSheet {
 #[derive(Debug, Clone)]
 pub struct ScaledFont {
     size: CharacterSize,
+    /// How far apart the cells of the grid are, in pixels. It is the size of the cell, unless the font was made
+    /// smaller with [`ScaledFont::resized`], where it keeps the proportion of the video exactly.
+    pitch: (f64, f64),
     glyphs: Vec<RgbaImage>,
 }
 
 impl ScaledFont {
-    /// Size of one cell.
+    /// Pixels of a glyph picture for a cell this far from the next.
+    fn pixels(pitch: f64) -> u32 {
+        (pitch.round() as u32).max(1)
+    }
+
+    /// The character size the font was made for. A font from [`ScaledFont::resized`] keeps the size of the font it
+    /// came from: its cells are told by [`ScaledFont::cell_width`] and [`ScaledFont::cell_height`].
     #[must_use]
     pub fn size(&self) -> CharacterSize {
         self.size
+    }
+
+    /// Width of the glyph pictures, in pixels.
+    #[must_use]
+    pub fn cell_width(&self) -> u32 {
+        Self::pixels(self.pitch.0)
+    }
+
+    /// Height of the glyph pictures, in pixels.
+    #[must_use]
+    pub fn cell_height(&self) -> u32 {
+        Self::pixels(self.pitch.1)
+    }
+
+    /// The distance between the left edges of two cells in a row, and between the top edges of two rows, in pixels.
+    /// It is the size of the cell for a font made by [`FontSheet::scaled`]. It is a fraction of a pixel when the font
+    /// was resized, so that the grid does not drift from where it is on the video.
+    #[must_use]
+    pub fn pitch(&self) -> (f64, f64) {
+        self.pitch
+    }
+
+    /// The same glyphs made `factor` times as large, for drawing on a picture that is `factor` times the size of the
+    /// video, such as a preview. It is done once, not for every drawn glyph.
+    #[must_use]
+    pub fn resized(&self, factor: f64) -> Self {
+        let pitch = (self.pitch.0 * factor, self.pitch.1 * factor);
+        let cell = (Self::pixels(pitch.0), Self::pixels(pitch.1));
+        let glyphs = if cell == (self.cell_width(), self.cell_height()) {
+            self.glyphs.clone()
+        } else {
+            self.glyphs
+                .iter()
+                .map(|glyph| imageops::resize(glyph, cell.0, cell.1, FilterType::Triangle))
+                .collect()
+        };
+        Self {
+            size: self.size,
+            pitch,
+            glyphs,
+        }
     }
 
     /// The image of glyph `code`, or `None` if the sheet has no such glyph.
@@ -151,6 +205,31 @@ mod tests {
         assert_eq!(large.size(), CharacterSize::Large);
         let glyph = large.glyph(1).unwrap();
         assert_eq!((glyph.width(), glyph.height()), (36, 54));
+    }
+
+    #[test]
+    fn a_resized_font_keeps_every_glyph_and_scales_the_grid() {
+        let sheet = FontSheet::from_image(&synthetic_sheet()).unwrap();
+        let half = sheet.scaled(CharacterSize::Small).resized(0.5);
+        assert_eq!(half.pitch(), (12.0, 18.0));
+        assert_eq!((half.cell_width(), half.cell_height()), (12, 18));
+        let glyph = half.glyph(3).unwrap();
+        assert_eq!((glyph.width(), glyph.height()), (12, 18));
+        assert_eq!(glyph.get_pixel(5, 5)[0], 3, "the glyph is still glyph 3");
+        assert_eq!(half.glyph(300).unwrap().get_pixel(5, 5)[0], 44);
+        assert!(half.glyph(512).is_none());
+    }
+
+    #[test]
+    fn a_resized_font_keeps_the_exact_distance_between_cells_and_rounds_only_the_pictures() {
+        let sheet = FontSheet::from_image(&synthetic_sheet()).unwrap();
+        let font = sheet.scaled(CharacterSize::Small).resized(0.35);
+        let (x, y) = font.pitch();
+        assert!((x - 8.4).abs() < 1e-9 && (y - 12.6).abs() < 1e-9, "{x} {y}");
+        assert_eq!((font.cell_width(), font.cell_height()), (8, 13));
+        // A font is never made of pictures with no pixels.
+        let tiny = sheet.scaled(CharacterSize::Small).resized(0.001);
+        assert_eq!((tiny.cell_width(), tiny.cell_height()), (1, 1));
     }
 
     #[test]

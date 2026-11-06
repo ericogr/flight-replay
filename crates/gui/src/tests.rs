@@ -10,6 +10,7 @@
 //! `FLIGHT_REPLAY_SNAPSHOTS=<folder>` saves a picture of every step the tests go through, to look at the layout.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools, probe};
 use flight_replay_core::font::{BundledFont, CharacterSize};
@@ -22,7 +23,7 @@ use image::{Rgba, RgbaImage};
 use tempfile::TempDir;
 
 use crate::app::{FlightReplay, ToolsState};
-use crate::message::{Message, OutputEdit, SoundEdit};
+use crate::message::{Message, OsdEdit, OutputEdit, SoundEdit};
 use crate::preferences::ThemeChoice;
 use crate::sound_params::Param;
 use crate::state::{FileKind, FontSource, QueueStatus, RenderState};
@@ -30,7 +31,7 @@ use crate::tasks;
 use crate::view;
 use crate::view::input::NO_FONT_HINT;
 use crate::view::sound::CUSTOM_SOUND_HINT;
-use crate::wizard::Step;
+use crate::wizard::{PreviewLayers, Step};
 
 /// The application, driven the way the user would.
 struct Harness {
@@ -63,8 +64,10 @@ impl Harness {
         self.run(tasks::locate_tools(None));
     }
 
-    /// Runs a task to its end, feeding what it produces back into the application.
-    fn run(&mut self, task: Task<Message>) {
+    /// Runs a task to its end, feeding what it produces back into the application. Gives the number of pictures of
+    /// a play that it handled on the way.
+    fn run(&mut self, task: Task<Message>) -> usize {
+        let mut pictures = 0;
         let mut pending = vec![task];
         while let Some(task) = pending.pop() {
             let Some(mut stream) = iced_runtime::task::into_stream(task) else {
@@ -72,16 +75,18 @@ impl Harness {
             };
             while let Some(action) = iced::futures::executor::block_on(stream.next()) {
                 if let Action::Output(message) = action {
+                    pictures += usize::from(matches!(message, Message::PlayFrame(..)));
                     pending.push(self.app.update(message));
                 }
             }
         }
+        pictures
     }
 
-    /// Sends a message and runs what it starts.
-    fn send(&mut self, message: Message) {
+    /// Sends a message and runs what it starts. Gives the number of pictures of a play that it handled.
+    fn send(&mut self, message: Message) -> usize {
         let task = self.app.update(message);
-        self.run(task);
+        self.run(task)
     }
 
     /// The window as a simulator sees it. It is taller than the real one, so that a step that scrolls is all in view:
@@ -892,4 +897,148 @@ fn the_button_opens_the_folder_the_video_was_written_in() {
     assert!(output.is_file(), "the video was written");
 
     assert_eq!(app.app.output_folder(), Some(folder));
+}
+
+/// The application with the clip open, the INAV font, and the SRT data switched on, so that both layers can be drawn.
+fn with_both_layers() -> Option<Harness> {
+    let mut app = Harness::start()?;
+    app.send(Message::FileDropped(fixture("clip-3s.mp4")));
+    app.send(Message::UseBundledFont(
+        BundledFont::find("inav-default").expect("the INAV font"),
+    ));
+    app.send(Message::DrawSrt(true));
+    assert!(app.app.draw_osd_on() && app.app.draw_srt_on());
+    Some(app)
+}
+
+#[test]
+fn the_previews_show_every_layer_until_the_user_asks_for_only_the_layer_of_the_step() {
+    let Some(mut app) = with_both_layers() else {
+        return;
+    };
+    let both = PreviewLayers {
+        osd: true,
+        srt: true,
+        grid: false,
+    };
+    for step in [Step::Overlay, Step::Srt, Step::Sound] {
+        app.send(Message::GoTo(step));
+        assert_eq!(app.app.preview.layers, both, "{step:?}");
+    }
+
+    // The option names what it adds in each step. Switched off, each step keeps its own layer.
+    app.send(Message::GoTo(Step::Overlay));
+    app.click("Also show the SRT data in the preview");
+    assert!(!app.app.preferences.show_other_layers);
+    assert_eq!(app.app.preview.layers, PreviewLayers { srt: false, ..both });
+    let saved = std::fs::read_to_string(app.path("settings.toml")).expect("the settings are saved");
+    assert!(saved.contains("show_other_layers = false"), "{saved}");
+
+    app.send(Message::GoTo(Step::Srt));
+    assert!(app.shows("Also show the OSD in the preview"));
+    assert_eq!(
+        app.app.preview.layers,
+        PreviewLayers { osd: false, ..both },
+        "the picture is made again for the step"
+    );
+
+    app.send(Message::GoTo(Step::Sound));
+    assert!(app.shows("Also show the SRT and OSD data in the preview"));
+    assert_eq!(
+        app.app.preview.layers,
+        PreviewLayers::default(),
+        "the step of the sound has no layer of its own"
+    );
+
+    app.click("Also show the SRT and OSD data in the preview");
+    assert_eq!(app.app.preview.layers, both);
+}
+
+#[test]
+fn the_choice_of_the_layers_is_remembered() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    assert!(app.app.preferences.show_other_layers, "on at first");
+    app.send(Message::ShowOtherLayers(false));
+    app.restart();
+    assert!(!app.app.preferences.show_other_layers);
+}
+
+#[test]
+fn the_grid_of_the_masks_is_only_on_the_picture_of_the_osd_step() {
+    let Some(mut app) = with_both_layers() else {
+        return;
+    };
+    app.send(Message::GoTo(Step::Overlay));
+    app.send(Message::Osd(OsdEdit::MaskMode(true)));
+    assert!(app.app.preview.layers.grid, "the OSD step shows it");
+    for step in [Step::Srt, Step::Sound] {
+        app.send(Message::GoTo(step));
+        assert!(!app.app.preview.layers.grid, "{step:?}");
+    }
+    app.send(Message::GoTo(Step::Overlay));
+    assert!(app.app.preview.layers.grid, "and shows it again");
+}
+
+#[test]
+fn a_preview_that_plays_ends_by_itself_and_goes_back_to_where_it_started() {
+    let Some(mut app) = with_both_layers() else {
+        return;
+    };
+    app.send(Message::GoTo(Step::Overlay));
+    // Half a second is left of the clip, which is all that plays.
+    app.app.preview.time_s = 2.5;
+    let pictures = app.send(Message::PlayPicture);
+    assert!(pictures > 5, "the stream gave pictures: {pictures}");
+    assert!(!app.app.is_playing(), "it ended");
+    assert_eq!(app.app.preview.time_s, 2.5, "back where it started");
+    assert!(app.app.preview.handle.is_some());
+    assert_eq!(app.app.preview.error, None);
+    assert_eq!(app.app.play_error, None);
+}
+
+#[test]
+fn there_is_nothing_to_play_at_the_end_of_the_video() {
+    let Some(mut app) = with_both_layers() else {
+        return;
+    };
+    app.send(Message::GoTo(Step::Overlay));
+    app.app.preview.time_s = 2.95;
+    app.send(Message::PlayPicture);
+    assert!(!app.app.is_playing());
+    assert_eq!(
+        app.app.play_error.as_deref(),
+        Some("There is no video left to play from here.")
+    );
+    assert!(app.shows("There is no video left to play from here."));
+}
+
+#[test]
+fn leaving_the_step_stops_what_plays() {
+    let Some(mut app) = with_both_layers() else {
+        return;
+    };
+    app.send(Message::GoTo(Step::Overlay));
+    // The play starts with the message; its task is not run, so it is still going when the user moves on.
+    let _task = app.app.update(Message::PlayPicture);
+    assert!(app.app.is_playing());
+    app.send(Message::GoTo(Step::Srt));
+    assert!(!app.app.is_playing(), "the play stopped with the step");
+    assert_eq!(
+        app.app.preview.time_s, 0.0,
+        "the picture is back at its time"
+    );
+}
+
+#[test]
+fn a_sound_that_is_ready_after_the_user_left_its_step_is_not_played() {
+    let Some(mut app) = with_both_layers() else {
+        return;
+    };
+    app.send(Message::GoTo(Step::Overlay));
+    // The step of the OSD has no sound to play, and nothing here needs an audio device.
+    app.send(Message::AudioRendered(Ok(Arc::new(vec![0i16; 4800]))));
+    assert!(!app.app.is_playing());
+    assert_eq!(app.app.play_error, None);
 }

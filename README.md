@@ -61,14 +61,22 @@ winget install Gyan.FFmpeg   # Windows
    font, each for 720p and 1080p videos; the one that suits the video is used. The step warns when the font is for
    another firmware than the `.osd` file. The fonts of the goggles' makers and of other designers are not included,
    as their licenses do not allow it, so use the file for those. What you choose is remembered.
-3. **OSD.** Check the position on the preview, centre it, mask elements by clicking them, and correct the timing.
-4. **SRT data.** Choose the fields and where they go.
+3. **OSD.** Check the position on the preview, centre it, mask elements by clicking them, and correct the timing. Play
+   ten seconds of the video to see the OSD in motion.
+4. **SRT data.** Choose the fields and where they go. Play ten seconds of the video to see them in motion.
 5. **Motor sound.** See what the recording gives the sound, choose the kind of motor and propeller, change the
    parameters, and listen to a moment of the flight: the picture and the OSD follow the sound, so you can check the
    timing by eye.
 6. **Output.** Encoder, bitrate, 1440p, file name. You can render only a stretch first, as a quick test.
 7. **Render.** The summary and the progress. The queue is here too. Tick "Show the FFmpeg command before rendering"
    to see, and copy, the commands that will run; it is off until you ask for it.
+
+While a preview plays, the picture is shown at reduced quality (smaller, at most 30 frames per second) so that it keeps
+up. The video you render is not affected.
+
+The preview of steps 3, 4 and 5 shows the OSD and the SRT data together, as the render will draw them. To see only
+the layer of the step, untick "Also show the SRT data in the preview" (step 3) or "Also show the OSD in the preview"
+(step 4); in step 5, "Also show the SRT and OSD data in the preview" adds or removes both. It only changes the preview.
 
 A video can also be given on the command line: `flight-replay video.mp4`. The settings are saved when you leave a
 step and when you close the window.

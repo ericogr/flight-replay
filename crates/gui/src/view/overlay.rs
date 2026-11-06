@@ -4,7 +4,7 @@
 use iced::Element;
 use iced::widget::{checkbox, column, row, text};
 
-use super::preview_view::{preview_block, sync_block};
+use super::preview_view::{picture_controls, preview_block, sync_block};
 use super::widgets::{action, hint, page, section, slider_row};
 use crate::app::FlightReplay;
 use crate::message::{Message, OsdEdit};
@@ -64,7 +64,10 @@ pub fn view(app: &FlightReplay) -> Element<'_, Message> {
     if let Some(message) = missing {
         items.push(hint(message));
     }
-    items.push(section("Preview", preview_block(app, true)));
+    items.push(section(
+        "Preview",
+        column![preview_block(app, true), picture_controls(app, "the OSD")].spacing(10),
+    ));
     items.push(section("Position", placement));
     items.push(section("Hidden elements", masks));
     items.push(sync_block(app));

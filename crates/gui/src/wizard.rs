@@ -74,6 +74,47 @@ impl Step {
             .and_then(|i| Self::ALL.get(i))
             .copied()
     }
+
+    /// Whether the step shows the preview picture.
+    #[must_use]
+    pub fn has_preview(self) -> bool {
+        matches!(self, Self::Overlay | Self::Srt | Self::Sound)
+    }
+
+    /// What the step wants on its preview picture. The step of the OSD wants the OSD, and the step of the SRT data
+    /// wants the SRT data; the step of the sound has no layer of its own. A layer of another step is wanted only
+    /// when `show_other_layers` is on. The grid of the OSD cells, which the masks are chosen on, belongs to the step
+    /// of the OSD.
+    #[must_use]
+    pub fn preview_layers(self, show_other_layers: bool) -> PreviewLayers {
+        PreviewLayers {
+            osd: show_other_layers || self == Self::Overlay,
+            srt: show_other_layers || self == Self::Srt,
+            grid: self == Self::Overlay,
+        }
+    }
+
+    /// What the "also show" option of the preview adds in this step, as the option names it.
+    #[must_use]
+    pub fn other_layers_name(self) -> &'static str {
+        match self {
+            Self::Overlay => "SRT data",
+            Self::Srt => "OSD",
+            _ => "SRT and OSD data",
+        }
+    }
+}
+
+/// What is drawn on a preview picture: the OSD, the SRT data, and the grid of the OSD cells.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "a plain list of what is drawn, one yes-or-no for each layer"
+)]
+pub struct PreviewLayers {
+    pub osd: bool,
+    pub srt: bool,
+    pub grid: bool,
 }
 
 /// What the wizard needs to know about the state of the application to decide where the user can go.
@@ -188,6 +229,41 @@ mod tests {
         assert_eq!(Step::Render.next(), None);
         assert_eq!(Step::Render.previous(), Some(Step::Output));
         assert_eq!(Step::ALL.len(), 7);
+    }
+
+    #[test]
+    fn only_three_steps_have_a_preview() {
+        let with: Vec<Step> = Step::ALL
+            .into_iter()
+            .filter(|step| step.has_preview())
+            .collect();
+        assert_eq!(with, [Step::Overlay, Step::Srt, Step::Sound]);
+    }
+
+    #[test]
+    fn a_step_wants_its_own_layer_and_the_others_only_when_asked() {
+        let layers = |osd, srt, grid| PreviewLayers { osd, srt, grid };
+        // Every layer is wanted while the option is on, and the grid is the OSD step's.
+        assert_eq!(Step::Overlay.preview_layers(true), layers(true, true, true));
+        assert_eq!(Step::Srt.preview_layers(true), layers(true, true, false));
+        assert_eq!(Step::Sound.preview_layers(true), layers(true, true, false));
+        // With it off each step keeps only its own, and the step of the sound has none.
+        assert_eq!(
+            Step::Overlay.preview_layers(false),
+            layers(true, false, true)
+        );
+        assert_eq!(Step::Srt.preview_layers(false), layers(false, true, false));
+        assert_eq!(
+            Step::Sound.preview_layers(false),
+            layers(false, false, false)
+        );
+    }
+
+    #[test]
+    fn the_option_names_what_it_adds() {
+        assert_eq!(Step::Overlay.other_layers_name(), "SRT data");
+        assert_eq!(Step::Srt.other_layers_name(), "OSD");
+        assert_eq!(Step::Sound.other_layers_name(), "SRT and OSD data");
     }
 
     #[test]

@@ -404,6 +404,7 @@ pub fn command_preview(plan: &RenderPlan, ffmpeg: &Path) -> Vec<String> {
                 start_s: window.start_s,
                 duration_s: Some(window.duration_s),
                 constant_rate: Some(plan.info.nominal_frame_rate),
+                scale_to: None,
             };
             let mut lines = Vec::new();
             if plan.chroma_key.is_none() {
@@ -511,6 +512,7 @@ fn overlay(
                 start_s: window.start_s,
                 duration_s: Some(window.duration_s),
                 constant_rate: Some(rate),
+                scale_to: None,
             },
         )?),
     };

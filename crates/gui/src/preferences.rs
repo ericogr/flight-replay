@@ -25,7 +25,7 @@ pub enum ThemeChoice {
 }
 
 /// What the window remembers.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
     /// The colour scheme.
@@ -34,6 +34,21 @@ pub struct Preferences {
     pub last_video_dir: Option<PathBuf>,
     /// Show the FFmpeg command on the last step, before the render. Off until the user asks for it.
     pub show_command: bool,
+    /// The preview of a step also shows the layers of the other steps (the OSD in the step of the SRT data, the SRT
+    /// data in the step of the OSD, both in the step of the sound), as the render will draw them. On until the user
+    /// switches it off; then each step shows only its own layer, and the step of the sound none.
+    pub show_other_layers: bool,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            theme: ThemeChoice::default(),
+            last_video_dir: None,
+            show_command: false,
+            show_other_layers: true,
+        }
+    }
 }
 
 /// The file as it is read: the preferences, then the settings of the render.
@@ -91,6 +106,7 @@ mod tests {
             theme: ThemeChoice::Dark,
             last_video_dir: Some(PathBuf::from("/flights")),
             show_command: true,
+            show_other_layers: false,
         };
 
         save(&path, &settings, &preferences).unwrap();
@@ -124,6 +140,10 @@ mod tests {
         assert!(
             !preferences.show_command,
             "a file without the key does not show the command"
+        );
+        assert!(
+            preferences.show_other_layers,
+            "a file without the key shows every layer"
         );
     }
 

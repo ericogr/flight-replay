@@ -16,9 +16,9 @@ draw), it goes in the core, where a command line can use it too.
 
 | Module | What it does |
 |---|---|
-| `ffmpeg` | Finds `ffmpeg` and `ffprobe`, reads what `ffprobe` says about a video, lists the encoders and tries each with a one-frame encode, decodes raw RGBA frames over a pipe, and runs the encoder process. FFmpeg is only ever a separate program. |
+| `ffmpeg` | Finds `ffmpeg` and `ffprobe`, reads what `ffprobe` says about a video, lists the encoders and tries each with a one-frame encode, decodes raw RGBA frames over a pipe (as stored, or already shrunk, which is how the previews that play are decoded), and runs the encoder process. FFmpeg is only ever a separate program. |
 | `osd` | The `.osd` file (header, screens, firmware), the options for drawing it (position, masks), and `join`: several files of one video put on one timeline, with the coverage check. |
-| `font` | OSD font sheets: the layouts they come in, and the glyphs at the size of the video. An `OsdFont` is one sheet (a file) or several (a font that comes with the program, compiled in from `assets/osd-fonts/`), and the sheet nearest to the video is the one drawn. |
+| `font` | OSD font sheets: the layouts they come in, and the glyphs at the size of the video, or made smaller for a picture that is smaller than the video (the previews), with the cells kept exactly in proportion. An `OsdFont` is one sheet (a file) or several (a font that comes with the program, compiled in from `assets/osd-fonts/`), and the sheet nearest to the video is the one drawn. |
 | `srt` | The SRT file the goggles record, and the data in each line. |
 | `overlay` | Draws the OSD and the SRT data on a frame, and the chroma-key background. |
 | `telemetry` | Reads the numbers out of the OSD screens. `decoder` and `inav` hold the rules and the glyph table; `table` and `series` put the readings on a timeline; `recording` ties them together; `probe` shows what the OSD says at a time; `profile` says what a firmware can give the sound. |
@@ -69,18 +69,24 @@ crates/gui/src
 ├── message.rs      every message, grouped by what it is about
 ├── state.rs        what is in memory: loaded files, the preview, the render, the queue, and the text the user typed
 ├── preferences.rs  what the window remembers (colour scheme, last folder), kept in the same file as the settings
-├── wizard.rs       the seven steps and the rules for moving between them, with no iced in it
+├── wizard.rs       the seven steps, the rules for moving between them, and which layers the preview of each step
+│                   has, with no iced in it
 ├── tasks.rs        work that must not block the window (opening files, probing, rendering): runs on a thread and
 │                   answers with a message
-├── preview.rs      makes the preview picture, and the geometry of the OSD grid under the pointer
-├── audio.rs        plays the sound preview
+├── preview.rs      what a preview picture is made from (`Scene`) and the layers drawn on it (`Layers`), which the
+│                   still picture and the one that plays share; makes the still picture; the geometry of the OSD
+│                   grid under the pointer
+├── playback.rs     the picture of a preview that plays: one FFmpeg process decodes the stretch already shrunk, and a
+│                   thread draws on each frame and sends it when the clock gets to it
+├── audio.rs        plays the sound of the sound preview
 ├── sound_params.rs the table of sound parameters the sound step draws its sliders from
 ├── app/            the state of the application and how it reacts
 │   ├── mod.rs        the struct, and `update`: one flat table from message to handler
 │   ├── files.rs      the video and the files that go with it
 │   ├── options.rs    what to draw, the timing, the sound and the output
 │   ├── picture.rs    the preview picture
-│   ├── listen.rs     the sound preview; the picture follows the sound
+│   ├── play.rs       a preview that plays (the sound step with its sound, the OSD and SRT steps without), and the
+│   │                 picture of it, a stream paced by the clock of the sound or of the computer
 │   ├── rendering.rs  the plan and running a render
 │   └── queue.rs      several videos, one after the other
 └── view/           one file for each step, and the pieces they share
@@ -100,6 +106,36 @@ Things worth knowing:
 - The settings of a render live in the core (`Settings`). The window keeps its own things in `Preferences` and
   writes both to one `settings.toml`: the preferences at the top, then the settings. The core can still read that
   file by itself.
+- The still picture and the picture that plays are made from the same `Scene` and drawn with the same `Layers`, so
+  what one shows the other shows. Which layers a step wants is a rule of `wizard.rs` (`Step::preview_layers`), and
+  the application only applies it to what the files allow.
+- Everything about a play is in one `Playing` (the clock, the sound if any, the stream of the picture), so there is
+  no picture without a play, and a stopped play cannot leave a stream behind.
+
+### The preview in motion
+
+A play shows ten seconds of the video from the time on the slider, with the sound in the step of the sound and
+without it in the steps of the OSD and of the SRT data.
+
+- **One FFmpeg process, decoded small.** `playback::start` opens a single decoder at the start time, with
+  `DecodeOptions::scale_to` and a frame rate that is the rate of the video or a whole fraction of it up to 30
+  (`play_rate`). The OSD glyphs and offsets are shrunk by the same factor (`ScaledFont::resized`), so the OSD lands
+  where it does on the video. Starting FFmpeg for every picture instead took 200 ms at 1080p and 550 ms at 4K.
+- **A clock paces it.** A thread reads a frame, draws the layers on it, waits until the clock has got to its time and
+  sends it. The clock is the moment the sound started, or the moment the play started when there is no sound. A
+  frame more than one frame late is skipped so that the picture catches up, but one is always shown at least every
+  200 ms (`should_skip`): a decoder slower than the clock would otherwise freeze the picture.
+- **The window never waits.** Frames go through a short channel, and a frame that finds it full is dropped. The
+  window ignores a frame from a stream that was stopped (each stream has a number).
+- **Edits restart the stream, once.** A change made while it plays (a position, a field, the timing, the option of the
+  layers) asks for the picture to start again from where the clock is. The request waits 150 ms and is dropped if
+  another edit came meanwhile, because dragging a slider makes dozens of edits a second and each start runs FFmpeg.
+  The ticks that look for the end of the play and these restarts carry the number of their play, so a stopped play
+  leaves nothing behind.
+- **It belongs to its step.** Moving to another step stops it, and a sound that is ready after the user left the step
+  of the sound is not played.
+- **The user is told.** The picture is a preview at reduced quality (smaller, at most 30 frames a second, frames
+  skipped if the computer is slow). Each step says so next to the picture, and the render is not affected.
 
 ### Adding a feature to the window
 
@@ -112,7 +148,8 @@ Things worth knowing:
 ## Tests
 
 - **Unit tests** are next to the code. They are for logic: parsers, the timeline, the join, the decoder rules, the
-  sound engine, the wizard rules, the geometry of the preview, how typed text is read.
+  arguments given to FFmpeg, the sound engine, the wizard rules (including the layers each preview has), the geometry
+  of the preview, how a preview follows its clock (the rate, which frames are skipped), how typed text is read.
 - **Integration tests** (`crates/core/tests`) use the real FFmpeg and the fixture clip in `tests/fixtures`. They
   render, cancel, join, and plan folders. They print a message and pass when FFmpeg is not installed.
 - **Golden images** (`tests/golden`) pin the output of the overlay. `make golden` rewrites them; look at the pictures
@@ -121,7 +158,8 @@ Things worth knowing:
   recordings that are not in the repository. They run when the variables in [build.md](build.md#tests) are set.
 - **The wizard tests** (`crates/gui/src/tests.rs`) run the real `update` and `view` with iced's simulator and the
   software renderer, so they need no desktop and no GPU. They click through every step, render the fixture clip, join
-  `.osd` files and run a queue. They are slow on purpose: they are the check that the pieces work together.
+  `.osd` files, run a queue, and play a preview to its end or stop it by leaving the step. They are slow on purpose: they are the check that the pieces work together.
 
 Not tested on purpose: the layout of each view (it is read in the pictures the wizard tests can save), code that a
-tool writes (the notices, the Windows resource), and the sound device.
+tool writes (the notices, the Windows resource), the sound device, and the timing of a play against a real clock (the
+tests check that it ends, stops and restores the picture, not how many frames it gave in a second).

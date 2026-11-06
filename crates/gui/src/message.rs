@@ -135,17 +135,31 @@ pub enum Message {
     Sound(SoundEdit),
     Output(OutputEdit),
     // preview
+    /// Show the layers of the other steps in the preview, or only the layer of the step.
+    ShowOtherLayers(bool),
     PreviewTime(f64),
     PreviewTimeReleased,
     PreviewReady(u64, Result<Arc<crate::preview::PreviewResult>, String>),
     PreviewHover(Point),
     PreviewExited,
     PreviewPressed,
-    // audio preview
+    // the preview in motion
+    /// Make the motor sound from the time of the preview, and play it with the picture.
     PlayAudio,
     AudioRendered(Result<Arc<Vec<i16>>, String>),
-    StopAudio,
-    AudioTick,
+    /// Play the picture alone from the time of the preview.
+    PlayPicture,
+    StopPlay,
+    /// Time to look at whether the play with this number is over.
+    PlayTick(u64),
+    /// The picture of the play with this number starts again, unless there was another edit after the one with this
+    /// number.
+    RestartPlayback {
+        play: u64,
+        edit: u64,
+    },
+    /// A picture of the video playing along with the sound, from the stream with this number.
+    PlayFrame(u64, Result<Arc<crate::playback::PlayFrame>, String>),
     // output
     BrowseOutput,
     OutputChosen(Option<PathBuf>),

@@ -27,9 +27,9 @@ pub struct FrameReader {
 /// How to decode a video.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DecodeOptions {
-    /// Picture width, in pixels.
+    /// Picture width of the video, in pixels.
     pub width: u32,
-    /// Picture height, in pixels.
+    /// Picture height of the video, in pixels.
     pub height: u32,
     /// Where to start, in seconds.
     pub start_s: f64,
@@ -38,6 +38,10 @@ pub struct DecodeOptions {
     /// Gives frames at a constant rate: a gap in the video repeats the previous frame, so that frame `n` is always at
     /// time `n / rate`. Without it, the frames come as they are stored.
     pub constant_rate: Option<f64>,
+    /// Shrinks each frame to this width and height, in pixels, while it is decoded, so that the frames read are
+    /// smaller than the video. Meant for previews: the frames are not those of the video, and only the pictures that
+    /// are shown should be made from them. `None` gives the frames at the size of the video.
+    pub scale_to: Option<(u32, u32)>,
 }
 
 impl DecodeOptions {
@@ -50,7 +54,14 @@ impl DecodeOptions {
             start_s: 0.0,
             duration_s: None,
             constant_rate: None,
+            scale_to: None,
         }
+    }
+
+    /// The width and height of the frames that are read.
+    #[must_use]
+    pub fn frame_size(&self) -> (u32, u32) {
+        self.scale_to.unwrap_or((self.width, self.height))
     }
 }
 
@@ -70,9 +81,17 @@ impl FrameReader {
             args.push("-t".into());
             args.push(format!("{duration:.6}").into());
         }
+        // The rate comes first, so that a frame that is dropped is not scaled.
+        let mut filters = Vec::new();
         if let Some(rate) = options.constant_rate {
+            filters.push(format!("fps={rate:.6}"));
+        }
+        if let Some((width, height)) = options.scale_to {
+            filters.push(format!("scale={width}:{height}:flags=bilinear"));
+        }
+        if !filters.is_empty() {
             args.push("-vf".into());
-            args.push(format!("fps={rate:.6}").into());
+            args.push(filters.join(",").into());
         }
         args.extend(
             [
@@ -103,12 +122,13 @@ impl FrameReader {
         let mut child = command.spawn().map_err(FfmpegError::spawn("ffmpeg"))?;
         let stdout = child.stdout.take().expect("stdout is piped");
         let stderr = child.stderr.take().map(collect_stderr);
+        let (width, height) = options.frame_size();
         Ok(Self {
             child: Some(child),
             stdout: BufReader::with_capacity(1 << 20, stdout),
             stderr,
-            width: options.width,
-            height: options.height,
+            width,
+            height,
             frames_read: 0,
         })
     }
@@ -189,5 +209,58 @@ impl FrameReader {
 impl Drop for FrameReader {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(options: &DecodeOptions) -> Vec<String> {
+        FrameReader::args(Path::new("in.mp4"), options)
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// The value that follows `flag`, if the flag is there.
+    fn value_of<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+        let at = args.iter().position(|arg| arg == flag)?;
+        args.get(at + 1).map(String::as_str)
+    }
+
+    #[test]
+    fn a_video_is_decoded_as_stored_unless_something_else_is_asked() {
+        let args = args(&DecodeOptions::whole(1280, 720));
+        for flag in ["-vf", "-ss", "-t"] {
+            assert!(!args.iter().any(|arg| arg == flag), "{flag} in {args:?}");
+        }
+    }
+
+    #[test]
+    fn shrinking_is_a_filter_and_the_frames_read_are_the_shrunk_size() {
+        let options = DecodeOptions {
+            scale_to: Some((640, 360)),
+            ..DecodeOptions::whole(1920, 1080)
+        };
+        assert_eq!(
+            value_of(&args(&options), "-vf"),
+            Some("scale=640:360:flags=bilinear")
+        );
+        assert_eq!(options.frame_size(), (640, 360));
+        assert_eq!(DecodeOptions::whole(1920, 1080).frame_size(), (1920, 1080));
+    }
+
+    #[test]
+    fn the_constant_rate_comes_before_the_shrinking_so_that_dropped_frames_are_not_scaled() {
+        let options = DecodeOptions {
+            constant_rate: Some(30.0),
+            scale_to: Some((640, 360)),
+            ..DecodeOptions::whole(1920, 1080)
+        };
+        assert_eq!(
+            value_of(&args(&options), "-vf"),
+            Some("fps=30.000000,scale=640:360:flags=bilinear")
+        );
     }
 }

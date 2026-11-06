@@ -748,3 +748,30 @@ These do not block P0. The defaults are used unless the owner changes them.
     `settings.toml` with the other preferences, and a file from an earlier version reads as off.
   - Not done: the harmonics of a preset have no slider; a multirotor (four motors at once) is not modelled; and the
     presets were not listened to, only measured.
+- Revision 11, 2026-11-06: the preview in motion.
+  - The sound preview was slow because it asked for a new picture four times a second, and each one started FFmpeg
+    and decoded from the nearest key frame (82 ms at 720p, 203 ms at 1080p, 549 ms at 4K, so 12, 5 and under 2
+    pictures a second at best). It is now one FFmpeg process, decoded already shrunk to the size of the preview
+    (`DecodeOptions::scale_to`) at up to 30 frames a second, with a thread that draws the layers and hands each frame
+    over when the clock gets to it. Measured on synthetic 60 fps clips, release build: 28 to 30 frames a second at
+    every size, 0.7 ms late on average against the clock of the sound, the first picture after 70 ms (720p), 141 ms
+    (1080p) and 485 ms (4K). Against the still picture at the same time, the mean difference is 1.7 of 255.
+  - The OSD is drawn on the small frame with glyphs and offsets made smaller by the same factor
+    (`ScaledFont::resized`), with the distance between cells kept as a fraction so that it does not drift from where
+    it is on the video.
+  - The picture says that its quality is reduced: under every preview (when it is smaller than the video) and in the
+    notes of the steps that play. The render is not affected.
+  - Steps 3 (OSD) and 4 (SRT data) have Play and Stop too, without sound, for checking the layer in motion. Moving
+    to another step stops a play.
+  - New option "Also show the ... in the preview" (on by default, remembered): off, each step shows only its own
+    layer and the step of the sound none.
+  - Review of this work: the still picture and the one that plays share one `Scene` and one `Layers` (they had two
+    copies of the drawing); the whole state of a play is one `Playing`; one timer helper; the rule of which layers a
+    step wants is in `wizard.rs` with tests; the ticks and restarts carry the number of their play. Problems found
+    and fixed: a decoder slower than the clock could freeze the picture (every frame was late and skipped), the grid
+    of the masks stayed on the previews of other steps, a sound that was ready after the user left its step played
+    there, and two chains of ticks could run after a stop followed by a play.
+  - Not done: a decoder much slower than the clock (4K H.265 without hardware decoding on a weak machine) shows the
+    picture late and in jumps of 200 ms instead of starting the stream again nearer to the clock; the OSD and SRT
+    steps have no sound; nobody has watched the play in the real window, only in the simulator and through the
+    messages of the application, and the timings above are of synthetic clips, not of Walksnail recordings.

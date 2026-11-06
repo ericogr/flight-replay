@@ -92,6 +92,7 @@ impl FlightReplay {
         self.set_file_error(kind, None);
         match kind {
             FileKind::Video => {
+                self.cancel_play();
                 self.video = None;
                 self.osd = None;
                 self.srt = None;
@@ -187,6 +188,7 @@ impl FlightReplay {
             }
         };
         let replaced = self.video.is_some();
+        self.cancel_play();
         self.osd = None;
         self.srt = None;
         self.telemetry = None;
