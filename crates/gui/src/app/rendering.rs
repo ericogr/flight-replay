@@ -118,9 +118,19 @@ impl FlightReplay {
         }
     }
 
+    /// The folder the finished render wrote its file in.
+    pub fn output_folder(&self) -> Option<PathBuf> {
+        match &self.render {
+            RenderState::Finished(Ok(outcome)) => {
+                Some(folder_or_current(&outcome.output).to_path_buf())
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn open_output_folder(&self) {
-        if let RenderState::Finished(Ok(outcome)) = &self.render {
-            tasks::open_folder(folder_or_current(&outcome.output));
+        if let Some(folder) = self.output_folder() {
+            tasks::open_folder(&folder);
         }
     }
 }

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use flight_replay_core::ffmpeg::{self, Tools};
 use flight_replay_core::font::{BundledFont, FontSheet, OsdFont};
 use flight_replay_core::osd::{OsdFile, join};
-use flight_replay_core::paths::{file_name, folder_or_current, parent_folder};
+use flight_replay_core::paths::{file_name, parent_folder};
 use flight_replay_core::render::{self, CancelToken, FlightDefaults, LeftOut, RenderPlan, Skipped};
 use flight_replay_core::srt::SrtFile;
 use flight_replay_core::synth::{SignalSet, SoundSettings, render_preview};
@@ -274,9 +274,9 @@ pub fn plan_folder(
     )
 }
 
-/// Opens the folder of a file in the file manager of the system.
-pub fn open_folder(path: &Path) {
-    if let Err(error) = opener::open(folder_or_current(path)) {
+/// Opens a folder in the file manager of the system.
+pub fn open_folder(folder: &Path) {
+    if let Err(error) = opener::open(folder) {
         tracing::warn!(%error, "could not open the folder");
     }
 }

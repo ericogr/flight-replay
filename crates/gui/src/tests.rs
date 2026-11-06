@@ -869,3 +869,27 @@ fn the_font_step_describes_the_font_and_flags_one_for_another_firmware() {
     // The fonts of the program are not a way to pass a wrong sheet silently: the user can still go on.
     assert!(!app.clicks("Next").is_empty());
 }
+
+#[test]
+fn the_button_opens_the_folder_the_video_was_written_in() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    app.send(Message::FileDropped(clip_with(&app, "solo", &["srt"])));
+    assert_eq!(app.app.output_folder(), None, "nothing has been rendered");
+
+    app.send(Message::GoTo(Step::Srt));
+    app.click("Draw the SRT data on the video");
+    // A folder inside a folder: the parent of the right folder is a different place.
+    let folder = app.path("renders").join("deep");
+    std::fs::create_dir_all(&folder).expect("the output folder");
+    let output = folder.join("solo-out.mp4");
+    app.send(Message::Output(OutputEdit::Path(
+        output.display().to_string(),
+    )));
+    app.send(Message::GoTo(Step::Render));
+    app.click("Start the render");
+    assert!(output.is_file(), "the video was written");
+
+    assert_eq!(app.app.output_folder(), Some(folder));
+}
