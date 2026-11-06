@@ -9,7 +9,7 @@ ARGS ?=
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build release run test fmt fmt-check lint deny check install clean
+.PHONY: help build release run test fmt fmt-check lint deny check install clean golden fixtures
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -42,6 +42,17 @@ check: fmt-check lint test deny ## All checks; run before every commit
 
 install: ## Install the application with cargo
 	$(CARGO) install --path crates/gui
+
+golden: ## Rewrite the golden images of the overlay tests (review the result before committing)
+	FLIGHT_REPLAY_UPDATE_GOLDEN=1 $(CARGO) test -p flight-replay-core --test overlay_golden
+
+# The recording that fixtures are cut from stays outside the repository: make fixtures SAMPLES=/path RECORDING=AvatarG0153
+SAMPLES   ?= $(FLIGHT_REPLAY_SAMPLES)
+RECORDING ?= AvatarG0153
+
+fixtures: ## Cut the test fixture from a local recording and move its GPS to open ocean
+	@test -n "$(SAMPLES)" || { echo "set SAMPLES to the folder of the recording"; exit 1; }
+	$(CARGO) xtask fixtures --source "$(SAMPLES)" --recording $(RECORDING)
 
 clean: ## Remove build output
 	$(CARGO) clean

@@ -440,11 +440,11 @@ These use the original tools as oracles. Their outputs are data, so comparing ag
     stays consistent. Random points would not;
   - the sign and the number of integer digits are kept, so each value keeps the width of its text on screen;
   - only the digit glyphs of those cells change. The rest of each screen is unchanged;
-  - the offset and the real coordinates stay in the git-ignored `local/` folder. They are never written to the
-    repository, and the tool takes the offset as an argument.
+  - the offset is computed while the command runs: the fake target minus the first real position in the clip. It is
+    never stored. The target is fake, so it is kept in the repository (`cargo xtask fixtures`).
 - **Checks after anonymization.** Decoded latitude and longitude equal the expected values within 1e-6. Every
-  other telemetry column is identical to the decode of the original clip. The fixture's reference values are
-  regenerated from the anonymized clip.
+  other telemetry column is identical to the decode of the original clip. The command also refuses a clip whose
+  OSD shows a plus code. The fixture tests read the clip itself, so there is no separate reference file.
 - **Other content.** The SRT is checked for coordinates (none in the sample). The video picture is not
   anonymized: the raw recording shows the place from above, so the owner decides whether the clip may be
   committed (section 14).
@@ -501,7 +501,7 @@ phase that is not started yet are not blocked by anything else unless the text s
 - [x] Add `LICENSE` (GPL-3.0 text) and `NOTICE`
 - [x] Add `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml` and `deny.toml` (section 4.2 allow list)
 - [x] Create the workspace with `crates/core` (`flight-replay-core`) and `crates/gui` (`flight-replay`)
-- [ ] Add `xtask` (deferred to P1, when the fixture tasks start; section 5.1)
+- [x] Add `xtask` (it cuts the fixtures; section 5.1)
 - [x] Add the SPDX header and the origin header template (`CONTRIBUTING.md`, section 4.2)
 - [x] Write the Makefile (phase 0 targets; the others are added in their phases, section 9.1)
 - [x] Add `.gitignore`: `target/`, `dist/`, `*.partial`, temporary WAV files, `local/`
@@ -517,21 +517,21 @@ phase that is not started yet are not blocked by anything else unless the text s
 
 **Fixtures (clips from P1; the `.osd` parts need P2 and P4)**
 
-- [ ] Create `local/` (git-ignored) for the raw recordings and the anonymization offset
+- [x] Create `local/` (git-ignored) for the raw recordings and the anonymization offset (not needed: the offset is computed at run time and never stored)
 - [x] Choose a clip of about 3 seconds from a raw recording (never a file with `_with_osd` in the name)
 - [x] Cut the video with `-c copy`, so the stream is the source's
-- [ ] Cut the `.osd` to the same frames, with the core's parser
-- [ ] Cut the `.srt` to the same time window
-- [ ] Choose the constant offset from the real track to an open-ocean point in the South Atlantic (at least 500 km
-      from any coast), keeping the sign and the number of integer digits. Keep the offset in `local/`
-- [ ] Rewrite the GPS digit glyphs in the `.osd` clip (same cells, same number of digits)
-- [ ] Verify: decoded latitude and longitude equal the expected values within 1e-6 on every frame that shows them
-- [ ] Verify: every other telemetry column equals the decode of the original clip
-- [ ] Regenerate the fixture's reference values from the anonymized clip
-- [ ] Check the clip's SRT for coordinates (none expected) and record the result
-- [ ] Owner decides whether the clip's picture (aerial view of a city) may be committed, or a cropped clip is used (section 14)
-- [ ] Record the fixture changes in `tests/fixtures/README.md`: which file, what changed, and why
-- [ ] Check that the total size of `tests/fixtures/` is under 15 MB
+- [x] Cut the `.osd` to the same frames, with the core's parser
+- [x] Cut the `.srt` to the same time window
+- [x] Move the real track to a fake open-ocean point in the South Atlantic (about 35.2 S, 31.4 W) by a constant
+      offset, keeping the sign and the number of integer digits. The offset is computed at run time
+- [x] Rewrite the GPS digit glyphs in the `.osd` clip (same cells, same number of digits)
+- [x] Verify: decoded latitude and longitude equal the expected values within 1e-6 on every frame that shows them
+- [x] Verify: every other telemetry column equals the decode of the original clip
+- [x] Regenerate the fixture's reference values from the anonymized clip (the fixture tests read the clip itself)
+- [x] Check the clip's SRT for coordinates (none expected) and record the result
+- [x] Owner decides whether the clip's picture (aerial view of a city) may be committed, or a cropped clip is used (owner: either is fine)
+- [x] Record the fixture changes in `tests/fixtures/README.md`: which file, what changed, and why
+- [x] Check that the total size of `tests/fixtures/` is under 15 MB (5.7 MB)
 
 **P1: media layer**
 
@@ -554,7 +554,7 @@ phase that is not started yet are not blocked by anything else unless the text s
 - [x] Port the overlay compositor
 - [x] Masks, position, centring and latency correction
 - [x] Frame preview in the core (the GUI comes in P7)
-- [ ] Golden tests for the overlay
+- [x] Golden tests for the overlay (synthetic font, flat picture)
 - [ ] Visual comparison with walksnail-osd-tool, same settings
 - [ ] Upgrade `image` to 0.25 and check that the output does not change (checked by eye only so far)
 
@@ -565,7 +565,7 @@ phase that is not started yet are not blocked by anything else unless the text s
 - [x] Field selection
 - [x] Text rendering with `ab_glyph` (replaces `rusttype`)
 - [x] Position and size
-- [ ] Golden tests
+- [x] Golden tests
 - [ ] Fields match walksnail-osd-tool on the fixture
 
 **P4: INAV telemetry and timeline**
@@ -655,7 +655,7 @@ phase that is not started yet are not blocked by anything else unless the text s
 | Overlay and sound drift apart | Wrong timing | One `timeline` module used by both. Probe check across both |
 | The fixture picture shows the place (the raw recording is an aerial view of a city) | The location leaks even though the `.osd` is anonymized | The owner decides per clip (section 14). A clip with no landmarks, or a cropped clip, can be used |
 | The shape of the track identifies the place, even after a translation | The location can be guessed from the path | Accept it, or add a rotation around the new point (distances are kept) |
-| The offset or the real coordinates end up in the repository | The real location can be recovered | They stay in `local/`, which is git-ignored. Check with `git check-ignore` before each commit |
+| The real coordinates end up in the repository | The real location is public | The offset is never stored. The test `the_positions_in_the_clip_are_the_fake_ones_in_the_south_atlantic` fails if a position outside the fake area is in the fixture |
 
 ## 13. Prerequisites
 
@@ -679,8 +679,7 @@ These do not block P0. The defaults are used unless the owner changes them.
 3. **macOS bundle identifier:** `io.github.ericogr.flight-replay` (**default**).
 4. **Defaults taken** for D3 (TOML), D6 (external FFmpeg), D9 (MP4), D10 (`replace` option), D11 (no update check)
    and D12 (`rodio` preview), unless the owner changes them.
-5. **Fixture clip choice.** The clip's picture can show the place. The owner picks the clip, or accepts a cropped
-   one (task in section 11.1).
+5. **Fixture clip choice.** Decided: the owner accepts the aerial view of a city in the picture of the clip.
 
 ## 15. Revision history
 

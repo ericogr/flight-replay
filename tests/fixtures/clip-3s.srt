@@ -1,0 +1,84 @@
+1
+00:00:00,000 --> 00:00:00,116
+Signal:3 CH:7 FlightTime:120 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1304m
+
+2
+00:00:00,116 --> 00:00:00,266
+Signal:3 CH:7 FlightTime:120 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1307m
+
+3
+00:00:00,266 --> 00:00:00,416
+Signal:3 CH:7 FlightTime:120 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1309m
+
+4
+00:00:00,416 --> 00:00:00,566
+Signal:3 CH:7 FlightTime:121 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1310m
+
+5
+00:00:00,566 --> 00:00:00,716
+Signal:3 CH:7 FlightTime:121 SBat:14.7V GBat:7.6V Delay:31ms Bitrate:25.0Mbps Distance:1312m
+
+6
+00:00:00,716 --> 00:00:00,866
+Signal:3 CH:7 FlightTime:121 SBat:14.7V GBat:7.6V Delay:31ms Bitrate:25.0Mbps Distance:1315m
+
+7
+00:00:00,866 --> 00:00:01,016
+Signal:3 CH:7 FlightTime:121 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1316m
+
+8
+00:00:01,016 --> 00:00:01,166
+Signal:3 CH:7 FlightTime:121 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1318m
+
+9
+00:00:01,166 --> 00:00:01,316
+Signal:3 CH:7 FlightTime:121 SBat:14.7V GBat:7.5V Delay:37ms Bitrate:25.0Mbps Distance:1319m
+
+10
+00:00:01,316 --> 00:00:01,466
+Signal:3 CH:7 FlightTime:122 SBat:14.7V GBat:7.5V Delay:37ms Bitrate:25.0Mbps Distance:1321m
+
+11
+00:00:01,466 --> 00:00:01,616
+Signal:3 CH:7 FlightTime:122 SBat:14.7V GBat:7.5V Delay:37ms Bitrate:25.0Mbps Distance:1324m
+
+12
+00:00:01,616 --> 00:00:01,766
+Signal:3 CH:7 FlightTime:122 SBat:14.7V GBat:7.5V Delay:37ms Bitrate:25.0Mbps Distance:1325m
+
+13
+00:00:01,766 --> 00:00:01,916
+Signal:3 CH:7 FlightTime:122 SBat:14.7V GBat:7.5V Delay:37ms Bitrate:25.0Mbps Distance:1330m
+
+14
+00:00:01,916 --> 00:00:02,066
+Signal:3 CH:7 FlightTime:122 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1330m
+
+15
+00:00:02,066 --> 00:00:02,216
+Signal:3 CH:7 FlightTime:122 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1331m
+
+16
+00:00:02,216 --> 00:00:02,366
+Signal:3 CH:7 FlightTime:122 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1333m
+
+17
+00:00:02,366 --> 00:00:02,516
+Signal:3 CH:7 FlightTime:123 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1336m
+
+18
+00:00:02,516 --> 00:00:02,666
+Signal:3 CH:7 FlightTime:123 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1337m
+
+19
+00:00:02,666 --> 00:00:02,816
+Signal:3 CH:7 FlightTime:123 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1340m
+
+20
+00:00:02,816 --> 00:00:02,966
+Signal:3 CH:7 FlightTime:123 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1342m
+
+21
+00:00:02,966 --> 00:00:03,116
+Signal:3 CH:7 FlightTime:123 SBat:14.7V GBat:7.6V Delay:37ms Bitrate:25.0Mbps Distance:1345m
+
