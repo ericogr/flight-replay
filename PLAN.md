@@ -598,13 +598,13 @@ phase that is not started yet are not blocked by anything else unless the text s
 
 **P6: render pipeline**
 
-- [ ] Combine overlay and sound (mode B)
-- [ ] 1440p upscale
-- [ ] Chroma-key background
-- [ ] Post-render check (durations within 1 ms)
-- [ ] Free disk-space check before the temporary WAV
-- [ ] Measure the performance baseline
-- [ ] End-to-end test on the fixture with every option
+- [x] Combine overlay and sound (mode B)
+- [x] 1440p upscale
+- [x] Chroma-key background
+- [x] Post-render check (durations within 1 ms)
+- [x] Free disk-space check before the temporary WAV
+- [x] Measure the performance baseline
+- [x] End-to-end test on the fixture with every option
 
 **P7: GUI wizard**
 

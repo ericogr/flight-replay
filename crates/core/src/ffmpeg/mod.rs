@@ -16,7 +16,7 @@ mod process;
 mod progress;
 mod tools;
 
-pub use decode::FrameReader;
+pub use decode::{DecodeOptions, FrameReader};
 pub use encode::{AudioInput, EncodeJob, EncodeProcess, VideoEncoding, VideoInput};
 pub use encoders::{Codec, EncoderInfo, candidates, detect, parse_encoder_list};
 pub use error::FfmpegError;

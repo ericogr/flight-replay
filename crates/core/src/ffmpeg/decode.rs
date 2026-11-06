@@ -23,26 +23,52 @@ pub struct FrameReader {
     frames_read: u64,
 }
 
+/// How to decode a video.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DecodeOptions {
+    /// Picture width, in pixels.
+    pub width: u32,
+    /// Picture height, in pixels.
+    pub height: u32,
+    /// Where to start, in seconds.
+    pub start_s: f64,
+    /// How long to decode, in seconds. `None` decodes to the end.
+    pub duration_s: Option<f64>,
+    /// Gives frames at a constant rate: a gap in the video repeats the previous frame, so that frame `n` is always at
+    /// time `n / rate`. Without it, the frames come as they are stored.
+    pub constant_rate: Option<f64>,
+}
+
+impl DecodeOptions {
+    /// Decodes the whole video as stored.
+    #[must_use]
+    pub fn whole(width: u32, height: u32) -> Self {
+        Self {
+            width,
+            height,
+            start_s: 0.0,
+            duration_s: None,
+            constant_rate: None,
+        }
+    }
+}
+
 impl FrameReader {
-    /// Starts decoding `input` from `start_s` seconds, for `duration_s` seconds (or to the end).
+    /// Starts decoding `input`.
     ///
-    /// `width` and `height` are the picture size reported by [`super::probe`].
-    pub fn open(
-        tools: &Tools,
-        input: &Path,
-        width: u32,
-        height: u32,
-        start_s: f64,
-        duration_s: Option<f64>,
-    ) -> Result<Self, FfmpegError> {
+    /// The width and height are the picture size reported by [`super::probe`].
+    pub fn open(tools: &Tools, input: &Path, options: &DecodeOptions) -> Result<Self, FfmpegError> {
         let mut command = command(tools.ffmpeg());
         command.args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
-        if start_s > 0.0 {
-            command.arg("-ss").arg(format!("{start_s:.6}"));
+        if options.start_s > 0.0 {
+            command.arg("-ss").arg(format!("{:.6}", options.start_s));
         }
         command.arg("-i").arg(input);
-        if let Some(duration) = duration_s {
+        if let Some(duration) = options.duration_s {
             command.arg("-t").arg(format!("{duration:.6}"));
+        }
+        if let Some(rate) = options.constant_rate {
+            command.arg("-vf").arg(format!("fps={rate:.6}"));
         }
         command
             .args([
@@ -62,8 +88,8 @@ impl FrameReader {
             child: Some(child),
             stdout: BufReader::with_capacity(1 << 20, stdout),
             stderr,
-            width,
-            height,
+            width: options.width,
+            height: options.height,
             frames_read: 0,
         })
     }

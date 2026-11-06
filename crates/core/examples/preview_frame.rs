@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use ab_glyph::FontRef;
 use flight_replay_core::assets;
-use flight_replay_core::ffmpeg::{FrameReader, Tools, probe};
+use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools, probe};
 use flight_replay_core::font::{CharacterSize, FontSheet};
 use flight_replay_core::osd::{OsdFile, OsdOptions};
 use flight_replay_core::overlay::{draw_osd, draw_srt};
@@ -65,10 +65,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut reader = FrameReader::open(
         &tools,
         &video,
-        info.width,
-        info.height,
-        at,
-        Some(1.0 / info.frame_rate),
+        &DecodeOptions {
+            start_s: at,
+            duration_s: Some(1.0 / info.nominal_frame_rate),
+            ..DecodeOptions::whole(info.width, info.height)
+        },
     )?;
     let mut buffer = Vec::new();
     if !reader.read_frame(&mut buffer)? {

@@ -22,6 +22,11 @@ pub fn fixture(name: &str) -> PathBuf {
 /// A 512-glyph font sheet made for the tests, so no font of the goggles has to be in the repository. Every glyph has
 /// a white border and interior stripes that follow the bits of its code, so any two glyphs look different.
 pub fn synthetic_font(size: CharacterSize) -> ScaledFont {
+    synthetic_sheet(size).scaled(size)
+}
+
+/// The sheet of [`synthetic_font`], at the native size of `size`.
+pub fn synthetic_sheet(size: CharacterSize) -> FontSheet {
     let (width, height) = (size.width(), size.height());
     let mut sheet = RgbaImage::new(width, height * 512);
     for code in 0..512u32 {
@@ -38,9 +43,7 @@ pub fn synthetic_font(size: CharacterSize) -> ScaledFont {
             }
         }
     }
-    FontSheet::from_image(&sheet)
-        .expect("a valid sheet")
-        .scaled(size)
+    FontSheet::from_image(&sheet).expect("a valid sheet")
 }
 
 /// Compares an image with the golden image of the same name in `tests/golden`.

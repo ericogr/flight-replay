@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use flight_replay_core::ffmpeg::{
-    AudioInput, EncodeJob, EncodeProcess, FrameReader, Tools, VideoEncoding, VideoInput, probe,
+    AudioInput, DecodeOptions, EncodeJob, EncodeProcess, FrameReader, Tools, VideoEncoding,
+    VideoInput, probe,
 };
 
 fn fixture() -> PathBuf {
@@ -75,7 +76,10 @@ fn tone_pcm(seconds: f64) -> Vec<u8> {
 
 fn copy_job(output: PathBuf, audio: AudioInput) -> EncodeJob {
     EncodeJob {
-        video: VideoInput::Copy { path: fixture() },
+        video: VideoInput::Copy {
+            path: fixture(),
+            start_s: 0.0,
+        },
         audio,
         encoding: None,
         audio_bitrate_kbps: 192,
@@ -100,8 +104,12 @@ fn probe_reads_the_fixture() {
 fn frame_reader_yields_every_frame_then_stops() {
     let Some(tools) = tools() else { return };
     let info = probe(&tools, &fixture()).unwrap();
-    let mut reader =
-        FrameReader::open(&tools, &fixture(), info.width, info.height, 0.0, None).unwrap();
+    let mut reader = FrameReader::open(
+        &tools,
+        &fixture(),
+        &DecodeOptions::whole(info.width, info.height),
+    )
+    .unwrap();
     let mut buffer = Vec::new();
     let mut count = 0;
     while reader.read_frame(&mut buffer).unwrap() {
@@ -162,8 +170,15 @@ fn raw_frames_are_encoded_with_the_chosen_encoder() {
     let info = probe(&tools, &fixture()).unwrap();
 
     // Decode 0.5 s of the fixture and encode it again from raw frames.
-    let mut reader =
-        FrameReader::open(&tools, &fixture(), info.width, info.height, 0.0, Some(0.5)).unwrap();
+    let mut reader = FrameReader::open(
+        &tools,
+        &fixture(),
+        &DecodeOptions {
+            duration_s: Some(0.5),
+            ..DecodeOptions::whole(info.width, info.height)
+        },
+    )
+    .unwrap();
     let job = EncodeJob {
         video: VideoInput::Raw {
             width: info.width,
@@ -219,7 +234,10 @@ fn an_aborted_encode_leaves_no_file_behind() {
 #[test]
 fn a_copied_video_cannot_be_encoded_again() {
     let job = EncodeJob {
-        video: VideoInput::Copy { path: fixture() },
+        video: VideoInput::Copy {
+            path: fixture(),
+            start_s: 0.0,
+        },
         audio: AudioInput::None,
         encoding: Some(VideoEncoding {
             encoder: "libx264".into(),

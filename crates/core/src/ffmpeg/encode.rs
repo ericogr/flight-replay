@@ -34,6 +34,8 @@ pub enum VideoInput {
     Copy {
         /// The file whose video stream is copied.
         path: PathBuf,
+        /// Where the copy starts, in seconds (0 for the start). The copy starts at the keyframe at or before it.
+        start_s: f64,
     },
 }
 
@@ -156,7 +158,11 @@ impl EncodeJob {
                 args.push(format!("{frame_rate:.6}").into());
                 push_all(&mut args, ["-i", "pipe:0"]);
             }
-            VideoInput::Copy { path } => {
+            VideoInput::Copy { path, start_s } => {
+                if *start_s > 0.0 {
+                    args.push("-ss".into());
+                    args.push(format!("{start_s:.6}").into());
+                }
                 args.push("-i".into());
                 args.push(path.as_os_str().to_owned());
             }
