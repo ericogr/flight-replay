@@ -78,8 +78,16 @@ The preview of steps 3, 4 and 5 shows the OSD and the SRT data together, as the 
 the layer of the step, untick "Also show the SRT data in the preview" (step 3) or "Also show the OSD in the preview"
 (step 4); in step 5, "Also show the SRT and OSD data in the preview" adds or removes both. It only changes the preview.
 
-A video can also be given on the command line: `flight-replay video.mp4`. The settings are saved when you leave a
-step and when you close the window.
+A video can also be given on the command line: `flight-replay video.mp4`.
+
+**What is remembered.** Every choice on the screens is saved as soon as you make it, and is there the next time you
+open the program: the colour scheme, the folder of FFmpeg if you chose one, the OSD font, what to draw, the position
+and the hidden elements, the timing of the OSD, the SRT fields, the sound (the parameters, the format, the saved
+sounds and the one chosen), the encoder and the bitrates, the other options of the output, "Replace the file if it
+exists", the start and the length of the stretch, and the options of the previews. Not remembered, on purpose: the
+video and the files that go with it, the name of the output file (it follows the video), "Render only a stretch"
+(it is off whenever the program opens, so that nothing is rendered short by mistake), the mode for hiding elements
+by clicking, and the name typed to save a sound before you press Save.
 
 Nothing leaves your computer. The application makes no network requests.
 

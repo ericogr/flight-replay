@@ -139,22 +139,22 @@ pub fn picture_controls<'a>(app: &'a FlightReplay, what: &str) -> Element<'a, Me
 pub fn sync_block(app: &FlightReplay) -> Element<'_, Message> {
     let mut items = column![labeled(
         "Speed of the OSD",
-        pick_list(ScaleChoice::ALL, Some(app.sync.choice), |c| Message::Sync(
-            SyncEdit::Scale(c)
-        )),
+        pick_list(ScaleChoice::ALL, Some(app.preferences.sync.choice), |c| {
+            Message::Sync(SyncEdit::Scale(c))
+        }),
     ),]
     .spacing(8);
-    if app.sync.choice == ScaleChoice::Manual {
+    if app.preferences.sync.choice == ScaleChoice::Manual {
         items = items.push(labeled(
             "Scale",
-            text_input("1.000", &app.sync.manual_scale)
+            text_input("1.000", &app.preferences.sync.manual_scale)
                 .on_input(|t| Message::Sync(SyncEdit::ManualScale(t)))
                 .width(Length::Fixed(120.0)),
         ));
     }
     items = items.push(labeled(
         "Delay of the OSD (seconds)",
-        text_input("0", &app.sync.offset)
+        text_input("0", &app.preferences.sync.offset)
             .on_input(|t| Message::Sync(SyncEdit::Offset(t)))
             .width(Length::Fixed(120.0)),
     ));

@@ -775,3 +775,20 @@ These do not block P0. The defaults are used unless the owner changes them.
     picture late and in jumps of 200 ms instead of starting the stream again nearer to the clock; the OSD and SRT
     steps have no sound; nobody has watched the play in the real window, only in the simulator and through the
     messages of the application, and the timings above are of synthetic clips, not of Walksnail recordings.
+- Revision 12, 2026-11-06: every choice on the screens is remembered.
+  - Audit of the controls against `settings.toml`: the speed and the delay of the OSD, "Replace the file if it exists",
+    "Replace it with the new sound", the start and the length of the stretch, and the saved sound that was chosen were
+    not saved. They are now in `Preferences` (typed text is kept as typed), as the only copy: the fields of the
+    application struct that held them are gone.
+  - Settings were written only when the user changed step or closed the window. `app/persist.rs` compares `Settings`
+    and `Preferences` with what the file holds after every message and writes the difference (the first change at
+    once, a burst 300 ms later in one write), so a program that is killed loses at most that gap.
+  - Left out on purpose: the video and its files, the name of the output file, whether a stretch is asked for (a quick
+    test is never left on), the mode for hiding elements by clicking (a tool, not a choice), and the name typed before
+    Save. Each is one field to add if that is wanted. They are kept out of `Settings` and `Preferences`, so changing
+    one never causes a write.
+  - Review of this work: the switch of the stretch had been put in `Preferences` with `serde(skip)`, which made each
+    toggle a useless write, and it moved to the application (`stretch_on`); the rule that a chosen saved sound must
+    exist in the file moved from the constructor of the application to `preferences::load`, where it is tested without
+    FFmpeg; a settings file that could not be written was only logged and is now said to the user once; closing the
+    window wrote the file even when nothing had changed, and now shares `flush_settings` with the timer.

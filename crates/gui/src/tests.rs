@@ -23,10 +23,10 @@ use image::{Rgba, RgbaImage};
 use tempfile::TempDir;
 
 use crate::app::{FlightReplay, ToolsState};
-use crate::message::{Message, OsdEdit, OutputEdit, SoundEdit};
+use crate::message::{Message, OsdEdit, OutputEdit, SoundEdit, SrtEdit, SyncEdit};
 use crate::preferences::ThemeChoice;
 use crate::sound_params::Param;
-use crate::state::{FileKind, FontSource, QueueStatus, RenderState};
+use crate::state::{FileKind, FontSource, QueueStatus, RenderState, ScaleChoice};
 use crate::tasks;
 use crate::view;
 use crate::view::input::NO_FONT_HINT;
@@ -1041,4 +1041,91 @@ fn a_sound_that_is_ready_after_the_user_left_its_step_is_not_played() {
     app.send(Message::AudioRendered(Ok(Arc::new(vec![0i16; 4800]))));
     assert!(!app.app.is_playing());
     assert_eq!(app.app.play_error, None);
+}
+
+#[test]
+fn everything_the_user_chooses_on_the_screens_is_remembered_the_next_time() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let messages = [
+        Message::Theme(ThemeChoice::Dark),
+        Message::ShowCommand(true),
+        Message::ShowOtherLayers(false),
+        Message::Sync(SyncEdit::Scale(ScaleChoice::Manual)),
+        Message::Sync(SyncEdit::ManualScale("1,02".to_owned())),
+        Message::Sync(SyncEdit::Offset("2,5".to_owned())),
+        Message::DrawOsd(false),
+        Message::DrawSrt(true),
+        Message::MakeSound(false),
+        Message::Osd(OsdEdit::X(15)),
+        Message::Srt(SrtEdit::Scale(50.0)),
+        Message::Sound(SoundEdit::Stereo(false)),
+        Message::Sound(SoundEdit::SampleRate(44_100)),
+        Message::Sound(SoundEdit::PresetName("Loud".to_owned())),
+        Message::Sound(SoundEdit::SavePreset),
+        Message::Output(OutputEdit::Bitrate(22)),
+        Message::Output(OutputEdit::AudioBitrate(128)),
+        Message::Output(OutputEdit::Upscale(true)),
+        Message::Output(OutputEdit::ChromaKey(true)),
+        Message::Output(OutputEdit::Faststart(false)),
+        Message::Output(OutputEdit::ShowUndetected(true)),
+        Message::Output(OutputEdit::Overwrite(true)),
+        Message::Output(OutputEdit::ReplaceAudio(true)),
+        Message::Output(OutputEdit::StretchStart("12".to_owned())),
+        Message::Output(OutputEdit::StretchDuration("45".to_owned())),
+        Message::Output(OutputEdit::Stretch(true)),
+    ];
+    // No step is left and the program is not closed: a choice must be on disk as soon as it is made.
+    for message in messages {
+        app.send(message);
+    }
+
+    app.restart();
+    let (settings, preferences) = (&app.app.settings, &app.app.preferences);
+    assert_eq!(preferences.theme, ThemeChoice::Dark);
+    assert!(preferences.show_command);
+    assert!(!preferences.show_other_layers);
+    assert_eq!(preferences.sync.choice, ScaleChoice::Manual);
+    assert_eq!(preferences.sync.manual_scale, "1,02");
+    assert_eq!(preferences.sync.offset, "2,5");
+    assert!(!settings.draw_osd && settings.draw_srt && !settings.make_sound);
+    assert_eq!(settings.osd.x_offset, 15);
+    assert!((settings.srt.scale - 50.0).abs() < f32::EPSILON);
+    assert_eq!(settings.sound.audio.channels, 1);
+    assert_eq!(settings.sound.audio.sample_rate, 44_100);
+    assert!(settings.presets.contains_key("Loud"));
+    assert_eq!(preferences.selected_preset.as_deref(), Some("Loud"));
+    assert_eq!(app.app.preset_name, "Loud", "the name of the chosen sound");
+    let output = &settings.output;
+    assert_eq!((output.bitrate_mbps, output.audio_bitrate_kbps), (22, 128));
+    assert!(output.upscale_1440p && output.chroma_key && !output.faststart);
+    assert!(output.show_undetected_encoders);
+    assert!(preferences.overwrite && preferences.replace_audio);
+    assert_eq!(preferences.stretch.start, "12");
+    assert_eq!(preferences.stretch.duration, "45");
+    assert!(
+        !app.app.stretch_on,
+        "a stretch is a quick test, and is not left on"
+    );
+}
+
+#[test]
+fn the_folder_of_ffmpeg_that_the_user_chose_is_remembered() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let folder = app.path("my-ffmpeg");
+    std::fs::create_dir_all(&folder).expect("a folder");
+    // The task that looks for FFmpeg in the folder is not run: the choice is what is kept.
+    let _search = app
+        .app
+        .update(Message::FfmpegFolderChosen(Some(folder.clone())));
+    assert_eq!(
+        app.app.settings.ffmpeg_dir.as_deref(),
+        Some(folder.as_path())
+    );
+    let saved = std::fs::read_to_string(app.path("settings.toml")).expect("the settings are saved");
+    assert!(saved.contains("ffmpeg_dir"), "{saved}");
+    assert!(saved.contains("my-ffmpeg"), "{saved}");
 }

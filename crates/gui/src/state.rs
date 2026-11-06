@@ -17,6 +17,7 @@ use flight_replay_core::synth::SignalSet;
 use flight_replay_core::telemetry::{Profile, Recording};
 use flight_replay_core::timeline::{ScaleMode, SyncOptions};
 use iced::widget::image::Handle;
+use serde::{Deserialize, Serialize};
 
 use crate::wizard::PreviewLayers;
 
@@ -270,7 +271,8 @@ pub fn parse_number(text: &str) -> Option<f64> {
 }
 
 /// How the scale between the video and the OSD is chosen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScaleChoice {
     Auto,
     Off,
@@ -292,7 +294,9 @@ impl std::fmt::Display for ScaleChoice {
 }
 
 /// The timing of the OSD as the user typed it. What it means is worked out when it is needed, so there is one copy
-/// of the choice and not a text and a number that could disagree.
+/// of the choice and not a text and a number that could disagree. The window remembers it as typed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SyncInput {
     pub choice: ScaleChoice,
     pub manual_scale: String,
@@ -327,9 +331,11 @@ impl SyncInput {
     }
 }
 
-/// The stretch of the video to render, as the user typed it.
+/// The start and the length of the stretch of the video to render, as the user typed them. The window remembers them.
+/// Whether a stretch is asked for is not part of this, and is not remembered: see `FlightReplay::stretch_on`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct StretchInput {
-    pub enabled: bool,
     pub start: String,
     pub duration: String,
 }
@@ -337,7 +343,6 @@ pub struct StretchInput {
 impl Default for StretchInput {
     fn default() -> Self {
         Self {
-            enabled: false,
             start: "0".to_owned(),
             duration: "30".to_owned(),
         }
@@ -345,13 +350,13 @@ impl Default for StretchInput {
 }
 
 impl StretchInput {
-    /// The stretch, if one is asked for. A start that cannot be read is the beginning, and a length that cannot be
+    /// The stretch the text stands for. A start that cannot be read is the beginning, and a length that cannot be
     /// read is the rest of the video.
-    pub fn window(&self) -> Option<Window> {
-        self.enabled.then(|| Window {
+    pub fn window(&self) -> Window {
+        Window {
             start_s: parse_number(&self.start).unwrap_or(0.0),
             duration_s: parse_number(&self.duration),
-        })
+        }
     }
 }
 
@@ -419,29 +424,27 @@ mod tests {
     }
 
     #[test]
-    fn a_stretch_is_only_a_window_when_it_is_asked_for() {
-        let mut input = StretchInput::default();
-        assert_eq!(input.window(), None);
-
-        input.enabled = true;
-        input.start = "12,5".into();
-        input.duration = "30".into();
+    fn a_stretch_is_read_from_what_was_typed() {
+        let mut input = StretchInput {
+            start: "12,5".into(),
+            duration: "30".into(),
+        };
         assert_eq!(
             input.window(),
-            Some(Window {
+            Window {
                 start_s: 12.5,
                 duration_s: Some(30.0)
-            })
+            }
         );
 
         input.start = "x".into();
         input.duration = String::new();
         assert_eq!(
             input.window(),
-            Some(Window {
+            Window {
                 start_s: 0.0,
                 duration_s: None
-            }),
+            },
             "an unreadable start is the beginning and an unreadable length is the rest"
         );
     }

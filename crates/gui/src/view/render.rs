@@ -153,11 +153,11 @@ fn summary(app: &FlightReplay) -> Element<'_, Message> {
         "Video: copied as it is".to_owned()
     }));
     lines = lines.push(text(format!("Output: {}", app.output_path)));
-    if app.stretch.enabled {
+    if app.stretch_on {
         lines = lines.push(text(format!(
             "Only a stretch: from {} s, for {} s",
-            app.stretch.start.trim(),
-            app.stretch.duration.trim()
+            app.preferences.stretch.start.trim(),
+            app.preferences.stretch.duration.trim()
         )));
     }
     lines.into()

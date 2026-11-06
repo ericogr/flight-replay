@@ -9,12 +9,14 @@
 //! - `files`: opening, replacing and clearing the video and the files that go with it
 //! - `options`: what to draw, how to encode, and the other choices of the steps
 //! - `picture`: the preview picture
+//! - `persist`: writing the settings file whenever a choice changes
 //! - `play`: the preview in motion, with the sound or without it
 //! - `rendering`: the plan of the render, and running it
 //! - `queue`: several videos, one after the other
 
 mod files;
 mod options;
+mod persist;
 mod picture;
 mod play;
 mod queue;
@@ -34,11 +36,11 @@ use iced::{Subscription, Task, Theme};
 use crate::message::Message;
 use crate::preferences::{self, Preferences, ThemeChoice};
 use crate::state::{
-    FileKind, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, Preview, Queue, RenderState,
-    StretchInput, SyncInput, Telemetry,
+    FileKind, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, Preview, Queue, RenderState, Telemetry,
 };
 use crate::tasks;
 use crate::wizard::{self, Context, Step};
+use persist::SettingsFile;
 use play::Playing;
 
 /// The state of the search for FFmpeg.
@@ -70,7 +72,7 @@ pub struct FlightReplay {
     /// What the window remembers.
     pub preferences: Preferences,
     system_mode: iced::theme::Mode,
-    settings_path: Option<PathBuf>,
+    file: SettingsFile,
     pub notices: Vec<String>,
 
     pub tools: ToolsState,
@@ -87,20 +89,20 @@ pub struct FlightReplay {
     pub busy: Busy,
     pub file_errors: Vec<(FileKind, String)>,
 
-    pub sync: SyncInput,
     pub preview: Preview,
 
+    /// The name typed to save the sound under.
     pub preset_name: String,
-    pub selected_preset: Option<String>,
     /// The preview that is playing: the clock, the picture, and the sound if the step has one.
     playing: Option<Playing>,
     /// Why the preview could not play.
     pub play_error: Option<String>,
 
     pub output_path: String,
-    pub overwrite: bool,
-    pub replace_audio: bool,
-    pub stretch: StretchInput,
+    /// Render only a stretch of the video, a quick test of the whole render. It is not remembered: it is off whenever
+    /// the program or a video is opened, so that nothing is rendered short by mistake. The start and the length of the
+    /// stretch are remembered, in the preferences.
+    pub stretch_on: bool,
 
     pub render: RenderState,
     pub queue: Queue,
@@ -127,11 +129,13 @@ impl FlightReplay {
             || (Settings::default(), Preferences::default(), None),
             preferences::load,
         );
+        let file = SettingsFile::new(settings_path, &settings, &preferences);
         Self {
+            preset_name: preferences.selected_preset.clone().unwrap_or_default(),
             settings,
             preferences,
             system_mode: iced::theme::Mode::None,
-            settings_path,
+            file,
             notices: notice.into_iter().collect(),
             tools: ToolsState::Searching,
             encoders: None,
@@ -144,16 +148,11 @@ impl FlightReplay {
             telemetry: None,
             busy: Busy::default(),
             file_errors: Vec::new(),
-            sync: SyncInput::default(),
             preview: Preview::default(),
-            preset_name: String::new(),
-            selected_preset: None,
             playing: None,
             play_error: None,
             output_path: String::new(),
-            overwrite: false,
-            replace_audio: false,
-            stretch: StretchInput::default(),
+            stretch_on: false,
             render: RenderState::Idle,
             queue: Queue::default(),
             command_lines: Vec::new(),
@@ -268,7 +267,7 @@ impl FlightReplay {
     pub fn timeline(&self) -> Option<Timeline> {
         let (video, osd) = (self.video.as_ref()?, self.osd.as_ref()?);
         Some(Timeline::new(
-            self.sync.options(),
+            self.preferences.sync.options(),
             video.info.duration_s,
             osd.file.duration_s(),
         ))
@@ -307,14 +306,6 @@ impl FlightReplay {
 
     // ----- what is remembered and what is derived
 
-    fn save_settings(&self) {
-        if let Some(path) = &self.settings_path
-            && let Err(error) = preferences::save(path, &self.settings, &self.preferences)
-        {
-            tracing::warn!(%error, "could not save the settings");
-        }
-    }
-
     fn rebuild_scaled_font(&mut self) {
         self.scaled_font = match (&self.font, &self.video) {
             (Some(font), Some(video)) => Some(Arc::new(font.font.scaled_for(video.info.height))),
@@ -340,12 +331,21 @@ impl FlightReplay {
 
     // ----- the messages
 
-    /// Reacts to a message.
+    /// Reacts to a message, and writes the settings if the message changed them.
+    pub fn update(&mut self, message: Message) -> Task<Message> {
+        let task = self.react(message);
+        match self.save_when_changed() {
+            Some(save) => Task::batch([task, save]),
+            None => task,
+        }
+    }
+
+    /// What each message does.
     #[allow(
         clippy::too_many_lines,
         reason = "one short arm for each message: a flat table is what lets the compiler check that all are handled"
     )]
-    pub fn update(&mut self, message: Message) -> Task<Message> {
+    fn react(&mut self, message: Message) -> Task<Message> {
         match message {
             // moving between the steps
             Message::Next => self.go_to(self.step.next()),
@@ -374,6 +374,10 @@ impl FlightReplay {
                 Task::none()
             }
             Message::CloseRequested => self.close_requested(),
+            Message::SaveSettings => {
+                self.settings_save_due();
+                Task::none()
+            }
 
             // the files
             Message::Browse(kind) => self.browse(kind),
@@ -486,7 +490,6 @@ impl FlightReplay {
         }
         let leaving = target != self.step;
         self.step = target;
-        self.save_settings();
         // What plays belongs to the step it was started in.
         let stopped = if leaving {
             self.play_error = None;
@@ -551,31 +554,27 @@ impl FlightReplay {
     fn ffmpeg_folder_chosen(&mut self, dir: PathBuf) -> Task<Message> {
         self.settings.ffmpeg_dir = Some(dir.clone());
         self.tools = ToolsState::Searching;
-        self.save_settings();
         tasks::locate_tools(Some(dir))
     }
 
     fn choose_theme(&mut self, theme: ThemeChoice) -> Task<Message> {
         self.preferences.theme = theme;
-        self.save_settings();
         Task::none()
     }
 
     fn set_show_other_layers(&mut self, on: bool) -> Task<Message> {
         self.preferences.show_other_layers = on;
-        self.save_settings();
         self.refresh_preview_if_open()
     }
 
     fn set_show_command(&mut self, on: bool) -> Task<Message> {
         self.preferences.show_command = on;
-        self.save_settings();
         Task::none()
     }
 
-    /// Saves what is remembered, stops a render that is running, and closes the window.
+    /// Writes what is remembered, stops a render that is running, and closes the window.
     fn close_requested(&mut self) -> Task<Message> {
-        self.save_settings();
+        self.flush_settings();
         if let RenderState::Running(running) = &self.render {
             running.cancel.cancel();
         }

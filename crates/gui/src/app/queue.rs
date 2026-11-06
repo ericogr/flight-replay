@@ -25,7 +25,6 @@ impl FlightReplay {
                     self.notices
                         .push("A video with that output file is in the queue already.".to_owned());
                 } else {
-                    self.save_settings();
                     self.queue.items.push(QueueItem::new(plan));
                 }
             }
@@ -58,10 +57,10 @@ impl FlightReplay {
             // The speed of the OSD is worked out for each video. A manual scale belongs to the one that is open.
             sync: SyncOptions {
                 scale: ScaleMode::Auto,
-                ..self.sync.options()
+                ..self.preferences.sync.options()
             },
-            overwrite: self.overwrite,
-            replace_audio: self.replace_audio,
+            overwrite: self.preferences.overwrite,
+            replace_audio: self.preferences.replace_audio,
         };
         let planned = self
             .queue

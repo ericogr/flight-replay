@@ -183,4 +183,6 @@ pub enum Message {
     // application
     SystemTheme(iced::theme::Mode),
     CloseRequested,
+    /// The time has come to write the settings that changed in a burst of edits.
+    SaveSettings,
 }

@@ -160,9 +160,9 @@ fn saved_presets(app: &FlightReplay) -> Element<'_, Message> {
     column![
         labeled(
             "Saved presets",
-            pick_list(names, app.selected_preset.clone(), |name| Message::Sound(
-                SoundEdit::Preset(name)
-            ))
+            pick_list(names, app.preferences.selected_preset.clone(), |name| {
+                Message::Sound(SoundEdit::Preset(name))
+            })
             .placeholder(if has_saved {
                 "Choose a preset"
             } else {
@@ -182,7 +182,8 @@ fn saved_presets(app: &FlightReplay) -> Element<'_, Message> {
                 ),
                 action(
                     "Delete",
-                    app.selected_preset
+                    app.preferences
+                        .selected_preset
                         .is_some()
                         .then_some(Message::Sound(SoundEdit::DeletePreset))
                 ),

@@ -34,6 +34,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- Every choice on the screens is saved as soon as it is made, and not only when the user moves to another step or
+  closes the window, so nothing is lost if the program is killed. Several things were not saved at all and now are:
+  the speed and the delay of the OSD, "Replace the file if it exists", "Replace it with the new sound", the start and
+  the length of the stretch, and the saved sound that was chosen. A stretch is still off whenever the program opens.
+  When the settings cannot be written (a folder that is read-only, a full disk) the window says so, once.
 - A part of the output that the files cannot give is switched off, with the reason on its step, instead of holding
   the user at that step: a video with only an `.srt` file gets the SRT data, an `.osd` of Betaflight gets the OSD and
   no sound, and an OSD that does not show the throttle gets everything but the sound. The summary before the render

@@ -126,7 +126,7 @@ fn file(app: &FlightReplay) -> Element<'_, Message> {
             ]
             .spacing(8),
         ),
-        checkbox(app.overwrite)
+        checkbox(app.preferences.overwrite)
             .label("Replace the file if it exists")
             .on_toggle(|v| Message::Output(OutputEdit::Overwrite(v))),
     ]
@@ -134,7 +134,7 @@ fn file(app: &FlightReplay) -> Element<'_, Message> {
     if app.sound_on() && app.video.as_ref().is_some_and(|v| v.info.audio_streams > 0) {
         items = items.push(problem("The video already has sound."));
         items = items.push(
-            checkbox(app.replace_audio)
+            checkbox(app.preferences.replace_audio)
                 .label("Replace it with the new sound")
                 .on_toggle(|v| Message::Output(OutputEdit::ReplaceAudio(v))),
         );
@@ -144,21 +144,21 @@ fn file(app: &FlightReplay) -> Element<'_, Message> {
 
 fn stretch(app: &FlightReplay) -> Element<'_, Message> {
     let mut items = column![
-        checkbox(app.stretch.enabled)
+        checkbox(app.stretch_on)
             .label("Render only a stretch of the video (a quick test of the whole render)")
             .on_toggle(|v| Message::Output(OutputEdit::Stretch(v))),
     ]
     .spacing(8);
-    if app.stretch.enabled {
+    if app.stretch_on {
         items = items.push(labeled(
             "Starts at (seconds)",
-            text_input("0", &app.stretch.start)
+            text_input("0", &app.preferences.stretch.start)
                 .on_input(|t| Message::Output(OutputEdit::StretchStart(t)))
                 .width(Length::Fixed(120.0)),
         ));
         items = items.push(labeled(
             "Lasts (seconds)",
-            text_input("30", &app.stretch.duration)
+            text_input("30", &app.preferences.stretch.duration)
                 .on_input(|t| Message::Output(OutputEdit::StretchDuration(t)))
                 .width(Length::Fixed(120.0)),
         ));

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use flight_replay_core::ffmpeg::Tools;
 use flight_replay_core::paths::folder_or_current;
 use flight_replay_core::render::{
-    CancelToken, Event, PlanInputs, RenderPlan, Stage, build_plan, command_preview,
+    CancelToken, Event, PlanInputs, RenderPlan, Stage, Window, build_plan, command_preview,
 };
 use iced::Task;
 use std::sync::Arc;
@@ -35,12 +35,17 @@ impl FlightReplay {
             font: self.font.as_ref().map(|f| &f.font),
             settings: &settings,
             encoders: self.encoders.as_ref().map_or(&[], |list| list.as_slice()),
-            sync: self.sync.options(),
-            window: self.stretch.window(),
+            sync: self.preferences.sync.options(),
+            window: self.stretch_window(),
             output: PathBuf::from(self.output_path.trim()),
-            overwrite: self.overwrite,
-            replace_audio: self.replace_audio,
+            overwrite: self.preferences.overwrite,
+            replace_audio: self.preferences.replace_audio,
         })
+    }
+
+    /// The stretch to render, if the user asked for one.
+    pub fn stretch_window(&self) -> Option<Window> {
+        self.stretch_on.then(|| self.preferences.stretch.window())
     }
 
     /// The FFmpeg commands of the plan, for the user to see before the render starts.
@@ -63,10 +68,7 @@ impl FlightReplay {
             return Task::none();
         };
         match self.build_plan() {
-            Ok(plan) => {
-                self.save_settings();
-                self.begin_render(tools, plan)
-            }
+            Ok(plan) => self.begin_render(tools, plan),
             Err(problems) => {
                 self.render = RenderState::Finished(Err(problems.join("\n")));
                 Task::none()
@@ -132,5 +134,29 @@ impl FlightReplay {
         if let Some(folder) = self.output_folder() {
             tasks::open_folder(&folder);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stretch_is_only_rendered_when_it_is_asked_for() {
+        let mut app = FlightReplay::new(None);
+        assert_eq!(app.stretch_window(), None, "off at first");
+
+        app.preferences.stretch.start = "12,5".to_owned();
+        app.preferences.stretch.duration = "30".to_owned();
+        assert_eq!(app.stretch_window(), None, "typing it does not ask for it");
+
+        app.stretch_on = true;
+        assert_eq!(
+            app.stretch_window(),
+            Some(Window {
+                start_s: 12.5,
+                duration_s: Some(30.0)
+            })
+        );
     }
 }

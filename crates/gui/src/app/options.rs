@@ -71,9 +71,9 @@ impl FlightReplay {
 
     pub(super) fn edit_sync(&mut self, edit: SyncEdit) -> Task<Message> {
         match edit {
-            SyncEdit::Scale(choice) => self.sync.choice = choice,
-            SyncEdit::ManualScale(text) => self.sync.manual_scale = text,
-            SyncEdit::Offset(text) => self.sync.offset = text,
+            SyncEdit::Scale(choice) => self.preferences.sync.choice = choice,
+            SyncEdit::ManualScale(text) => self.preferences.sync.manual_scale = text,
+            SyncEdit::Offset(text) => self.preferences.sync.offset = text,
         }
         self.refresh_preview_if_open()
     }
@@ -91,14 +91,14 @@ impl FlightReplay {
                 if let Some(preset) = MOTOR_PRESETS.get(index) {
                     preset.apply(&mut self.settings.sound);
                     // The saved preset that was chosen no longer describes the sound.
-                    self.selected_preset = None;
+                    self.preferences.selected_preset = None;
                 }
             }
             SoundEdit::Preset(name) => {
                 if let Some(preset) = self.settings.presets.get(&name) {
                     self.settings.sound = preset.clone();
                 }
-                self.selected_preset = Some(name.clone());
+                self.preferences.selected_preset = Some(name.clone());
                 self.preset_name = name;
             }
             SoundEdit::PresetName(name) => self.preset_name = name,
@@ -108,17 +108,17 @@ impl FlightReplay {
                     self.settings
                         .presets
                         .insert(name.clone(), self.settings.sound.clone());
-                    self.selected_preset = Some(name);
+                    self.preferences.selected_preset = Some(name);
                 }
             }
             SoundEdit::DeletePreset => {
-                if let Some(name) = self.selected_preset.take() {
+                if let Some(name) = self.preferences.selected_preset.take() {
                     self.settings.presets.remove(&name);
                 }
             }
             SoundEdit::ResetToDefaults => {
                 self.settings.sound = SoundSettings::default();
-                self.selected_preset = None;
+                self.preferences.selected_preset = None;
             }
         }
         self.recompute_signals();
@@ -136,11 +136,11 @@ impl FlightReplay {
             OutputEdit::Faststart(v) => output.faststart = v,
             OutputEdit::ShowUndetected(v) => output.show_undetected_encoders = v,
             OutputEdit::Path(text) => self.output_path = text,
-            OutputEdit::Overwrite(v) => self.overwrite = v,
-            OutputEdit::ReplaceAudio(v) => self.replace_audio = v,
-            OutputEdit::Stretch(v) => self.stretch.enabled = v,
-            OutputEdit::StretchStart(text) => self.stretch.start = text,
-            OutputEdit::StretchDuration(text) => self.stretch.duration = text,
+            OutputEdit::Overwrite(v) => self.preferences.overwrite = v,
+            OutputEdit::ReplaceAudio(v) => self.preferences.replace_audio = v,
+            OutputEdit::Stretch(v) => self.stretch_on = v,
+            OutputEdit::StretchStart(text) => self.preferences.stretch.start = text,
+            OutputEdit::StretchDuration(text) => self.preferences.stretch.duration = text,
         }
         Task::none()
     }

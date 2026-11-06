@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 EricoGR
 
-//! What the window remembers between runs, besides the settings of a render.
+//! What the window remembers between runs, besides the [`Settings`] of the core.
 //!
-//! Both are kept in the one `settings.toml`: the preferences are keys at the top of the file, and the settings of the
-//! render (see [`flight_replay_core::config`]) follow, so a file written by an older version is still read.
+//! These are the choices of the screens that the core does not know: the colour scheme, the options of the previews,
+//! and what a render is given on each run rather than as a setting (the timing of the OSD, the stretch, whether to
+//! replace a file). Both are kept in the one `settings.toml`: the preferences are keys at the top of the file, and the
+//! settings of the render (see [`flight_replay_core::config`]) follow, so a file written by an older version is still
+//! read.
 
 use std::path::{Path, PathBuf};
 
 use flight_replay_core::config::{self, Settings, SettingsError};
 use serde::{Deserialize, Serialize};
+
+use crate::state::{StretchInput, SyncInput};
 
 /// The colour scheme of the window.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,6 +32,10 @@ pub enum ThemeChoice {
 /// What the window remembers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "one switch for each choice of the screens that the window remembers"
+)]
 pub struct Preferences {
     /// The colour scheme.
     pub theme: ThemeChoice,
@@ -38,6 +47,18 @@ pub struct Preferences {
     /// data in the step of the OSD, both in the step of the sound), as the render will draw them. On until the user
     /// switches it off; then each step shows only its own layer, and the step of the sound none.
     pub show_other_layers: bool,
+    /// The saved sound that was chosen in the list of the sound step. It stays chosen while its values are tweaked, so
+    /// that it can be saved over or deleted, and it is dropped when another kind of motor or the defaults are chosen.
+    /// It always names a sound that is in the settings (see [`load`]).
+    pub selected_preset: Option<String>,
+    /// How the OSD is timed against the video, as typed.
+    pub sync: SyncInput,
+    /// The start and the length of the stretch to render, as typed. Whether a stretch is asked for is not kept.
+    pub stretch: StretchInput,
+    /// Replace the output file if it exists.
+    pub overwrite: bool,
+    /// Replace the sound of a video that already has some.
+    pub replace_audio: bool,
 }
 
 impl Default for Preferences {
@@ -47,6 +68,11 @@ impl Default for Preferences {
             last_video_dir: None,
             show_command: false,
             show_other_layers: true,
+            selected_preset: None,
+            sync: SyncInput::default(),
+            stretch: StretchInput::default(),
+            overwrite: false,
+            replace_audio: false,
         }
     }
 }
@@ -72,9 +98,19 @@ struct StoredRef<'a> {
 }
 
 /// Reads the file. When it cannot be used the defaults are given with a message, and the file is kept as `.broken`.
+/// What is read is made to agree with itself: a saved sound that was chosen but is no longer in the file (it was
+/// edited by hand) is not left chosen.
 pub fn load(path: &Path) -> (Settings, Preferences, Option<String>) {
     let (stored, notice) = config::load_or_default::<Stored>(path);
-    (stored.settings, stored.preferences, notice)
+    let (settings, mut preferences) = (stored.settings, stored.preferences);
+    if preferences
+        .selected_preset
+        .as_ref()
+        .is_some_and(|name| !settings.presets.contains_key(name))
+    {
+        preferences.selected_preset = None;
+    }
+    (settings, preferences, notice)
 }
 
 /// Writes the file.
@@ -95,6 +131,7 @@ pub fn save(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::ScaleChoice;
 
     #[test]
     fn the_preferences_and_the_settings_share_one_file_and_survive_it() {
@@ -102,11 +139,27 @@ mod tests {
         let path = dir.path().join("settings.toml");
         let mut settings = Settings::default();
         settings.output.bitrate_mbps = 22;
+        settings
+            .presets
+            .insert("Loud".to_owned(), settings.sound.clone());
+        // Every value is the opposite of the default, so that a key that is not kept shows.
         let preferences = Preferences {
             theme: ThemeChoice::Dark,
             last_video_dir: Some(PathBuf::from("/flights")),
             show_command: true,
             show_other_layers: false,
+            selected_preset: Some("Loud".to_owned()),
+            sync: SyncInput {
+                choice: ScaleChoice::Manual,
+                manual_scale: "1,02".to_owned(),
+                offset: "2,5".to_owned(),
+            },
+            stretch: StretchInput {
+                start: "12".to_owned(),
+                duration: "45".to_owned(),
+            },
+            overwrite: true,
+            replace_audio: true,
         };
 
         save(&path, &settings, &preferences).unwrap();
@@ -145,6 +198,27 @@ mod tests {
             preferences.show_other_layers,
             "a file without the key shows every layer"
         );
+    }
+
+    #[test]
+    fn a_saved_sound_that_is_chosen_must_be_in_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.toml");
+        let mut settings = Settings::default();
+        settings
+            .presets
+            .insert("Kept".to_owned(), settings.sound.clone());
+        let mut preferences = Preferences {
+            selected_preset: Some("Kept".to_owned()),
+            ..Preferences::default()
+        };
+        save(&path, &settings, &preferences).unwrap();
+        assert_eq!(load(&path).1.selected_preset.as_deref(), Some("Kept"));
+
+        // The saved sound was taken out of the file by hand: it cannot stay chosen.
+        preferences.selected_preset = Some("Gone".to_owned());
+        save(&path, &settings, &preferences).unwrap();
+        assert_eq!(load(&path).1.selected_preset, None);
     }
 
     #[test]

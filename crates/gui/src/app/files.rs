@@ -203,7 +203,7 @@ impl FlightReplay {
         self.output_path = OutputPlan::default_path(&video.path, false)
             .display()
             .to_string();
-        self.stretch.enabled = false;
+        self.stretch_on = false;
         self.render = RenderState::Idle;
 
         let companions = discover::companions(&video.path);

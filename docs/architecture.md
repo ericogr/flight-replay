@@ -68,7 +68,9 @@ crates/gui/src
 ├── main.rs         starts iced
 ├── message.rs      every message, grouped by what it is about
 ├── state.rs        what is in memory: loaded files, the preview, the render, the queue, and the text the user typed
-├── preferences.rs  what the window remembers (colour scheme, last folder), kept in the same file as the settings
+├── preferences.rs  what the window remembers (colour scheme, last folder, the options of the previews, the timing of
+│                   the OSD, the output options that are not in the core, the sound that was chosen), kept in the same
+│                   file as the settings
 ├── wizard.rs       the seven steps, the rules for moving between them, and which layers the preview of each step
 │                   has, with no iced in it
 ├── tasks.rs        work that must not block the window (opening files, probing, rendering): runs on a thread and
@@ -84,6 +86,7 @@ crates/gui/src
 │   ├── mod.rs        the struct, and `update`: one flat table from message to handler
 │   ├── files.rs      the video and the files that go with it
 │   ├── options.rs    what to draw, the timing, the sound and the output
+│   ├── persist.rs    writing the settings file whenever a choice changes
 │   ├── picture.rs    the preview picture
 │   ├── play.rs       a preview that plays (the sound step with its sound, the OSD and SRT steps without), and the
 │   │                 picture of it, a stream paced by the clock of the sound or of the computer
@@ -106,6 +109,15 @@ Things worth knowing:
 - The settings of a render live in the core (`Settings`). The window keeps its own things in `Preferences` and
   writes both to one `settings.toml`: the preferences at the top, then the settings. The core can still read that
   file by itself.
+- Every choice the user makes on a screen lives in `Settings` or in `Preferences`, once, and nowhere else (the screens
+  read it from there), so there is nothing to keep in step and nothing to forget to save. `app/persist.rs` compares
+  both with what the file holds after every message and writes the difference: at once for the first change, and a
+  burst of changes (a slider) in one write 300 ms later. Closing the window writes at once. If the file cannot be
+  written the user is told once, in a notice. A new choice is remembered by adding it to one of the two structs; what
+  is not remembered on purpose is listed in the README. What is read is made to agree with itself in
+  `preferences::load` (a chosen saved sound that is no longer in the file is dropped), and what belongs to one run
+  only (`stretch_on`, the mode for hiding elements, the name typed for a sound) is kept out of the two structs, so
+  that changing it never causes a write.
 - The still picture and the picture that plays are made from the same `Scene` and drawn with the same `Layers`, so
   what one shows the other shows. Which layers a step wants is a rule of `wizard.rs` (`Step::preview_layers`), and
   the application only applies it to what the files allow.
