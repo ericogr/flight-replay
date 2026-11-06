@@ -202,6 +202,8 @@ impl std::fmt::Debug for QueueItem {
 #[derive(Debug)]
 pub struct FolderQueue {
     pub items: Vec<QueueItem>,
+    /// One line for each video that is in the queue without some of what the settings ask for, and why.
+    pub left_out: Vec<String>,
     /// One line for each video that was left out.
     pub skipped: Vec<String>,
 }

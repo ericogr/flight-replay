@@ -119,14 +119,15 @@ fn summary(app: &FlightReplay) -> Element<'_, Message> {
     if let Some(video) = &app.video {
         lines = lines.push(text(format!("Video: {}", file_name(&video.path))));
     }
+    let (osd, srt, sound) = (app.draw_osd_on(), app.draw_srt_on(), app.sound_on());
     let mut added = Vec::new();
-    if app.settings.draw_osd {
+    if osd {
         added.push("the OSD");
     }
-    if app.settings.draw_srt {
+    if srt {
         added.push("the SRT data");
     }
-    if app.settings.make_sound {
+    if sound {
         added.push("the motor sound");
     }
     lines = lines.push(text(if added.is_empty() {
@@ -134,8 +135,10 @@ fn summary(app: &FlightReplay) -> Element<'_, Message> {
     } else {
         format!("Adds: {}", added.join(", "))
     }));
-    let draws = app.settings.draw_osd || app.settings.draw_srt;
-    lines = lines.push(text(if draws {
+    for left_out in app.availability().omissions(&app.settings) {
+        lines = lines.push(hint(left_out.to_string()));
+    }
+    lines = lines.push(text(if osd || srt {
         format!(
             "Video: encoded again with {} at {} Mbps{}",
             app.settings.output.encoder,

@@ -25,14 +25,18 @@ impl fmt::Display for EncoderOption {
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
     let mut items: Vec<Element<'_, Message>> = Vec::new();
-    if app.settings.draw_osd || app.settings.draw_srt {
+    if app.draw_osd_on() || app.draw_srt_on() {
         items.push(section("Video", video(app)));
-    } else {
+    } else if app.sound_on() {
         items.push(hint(
             "Only the sound is added, so the video is copied as it is, without encoding it again. There are no video settings.",
         ));
+    } else {
+        items.push(hint(
+            "Nothing is added to the video yet, so there are no video settings.",
+        ));
     }
-    if app.settings.make_sound {
+    if app.sound_on() {
         items.push(section("Sound", audio(app)));
     }
     items.push(section("File", file(app)));
@@ -127,7 +131,7 @@ fn file(app: &FlightReplay) -> Element<'_, Message> {
             .on_toggle(|v| Message::Output(OutputEdit::Overwrite(v))),
     ]
     .spacing(8);
-    if app.settings.make_sound && app.video.as_ref().is_some_and(|v| v.info.audio_streams > 0) {
+    if app.sound_on() && app.video.as_ref().is_some_and(|v| v.info.audio_streams > 0) {
         items = items.push(problem("The video already has sound."));
         items = items.push(
             checkbox(app.replace_audio)

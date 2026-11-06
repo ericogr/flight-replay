@@ -26,8 +26,8 @@ use std::sync::Arc;
 use flight_replay_core::config::{self, Settings};
 use flight_replay_core::ffmpeg::{EncoderInfo, Tools};
 use flight_replay_core::font::{CharacterSize, ScaledFont};
+use flight_replay_core::render::Availability;
 use flight_replay_core::synth::SignalSet;
-use flight_replay_core::telemetry::TelemetrySupport;
 use flight_replay_core::timeline::Timeline;
 use iced::{Subscription, Task, Theme};
 
@@ -206,34 +206,60 @@ impl FlightReplay {
 
     /// The facts the wizard rules work from.
     pub fn context(&self) -> Context {
-        let signals_error = match &self.telemetry {
-            Some(Telemetry {
-                signals: Err(error),
-                ..
-            }) => Some(error.clone()),
-            _ => None,
-        };
         Context {
             tools_found: self.tools().is_some(),
             video: self.video.is_some(),
-            osd: self.osd.is_some(),
-            font: self.font.is_some(),
-            srt: self.srt.is_some(),
-            draw_osd: self.settings.draw_osd,
-            draw_srt: self.settings.draw_srt,
-            make_sound: self.settings.make_sound,
-            sound_unavailable: self.sound_unavailable(),
-            signals_error,
+            draw_osd: self.draw_osd_on(),
+            draw_srt: self.draw_srt_on(),
+            make_sound: self.sound_on(),
             output_path: !self.output_path.trim().is_empty(),
             encoder: !self.settings.output.encoder.is_empty(),
         }
     }
 
-    /// Why the `.osd` cannot drive the sound, if it cannot.
-    pub fn sound_unavailable(&self) -> Option<String> {
-        let osd = self.osd.as_ref()?;
-        (osd.profile.telemetry_support() != TelemetrySupport::Available)
-            .then(|| osd.profile.explanation().to_owned())
+    /// What the files at hand allow, apart from what the telemetry says: why the OSD, the SRT data and the sound
+    /// cannot be made, if they cannot.
+    pub fn files_allow(&self) -> Availability {
+        Availability::new(
+            self.osd.as_ref().map(|o| &*o.file),
+            self.font.is_some(),
+            self.srt.is_some(),
+        )
+    }
+
+    /// What the files and the telemetry allow. What is not allowed is left out of the render, and the steps say why.
+    pub fn availability(&self) -> Availability {
+        self.files_allow().with_telemetry(self.telemetry_problem())
+    }
+
+    /// Why the telemetry cannot drive the sound yet, if it cannot: it is being read, it could not be read, or it
+    /// lacks what the sound needs.
+    fn telemetry_problem(&self) -> Option<String> {
+        self.osd.as_ref()?;
+        match &self.telemetry {
+            Some(Telemetry {
+                signals: Err(error),
+                ..
+            }) if !error.is_empty() => Some(error.clone()),
+            Some(Telemetry { signals: Ok(_), .. }) => None,
+            _ if self.busy.telemetry => Some("The telemetry is being read.".to_owned()),
+            _ => Some("The telemetry of the .osd file could not be read.".to_owned()),
+        }
+    }
+
+    /// Whether the OSD is drawn: it is wanted, and there are an `.osd` file and a font.
+    pub fn draw_osd_on(&self) -> bool {
+        self.settings.draw_osd && self.availability().osd.is_none()
+    }
+
+    /// Whether the SRT data are drawn: they are wanted, and there is an `.srt` file.
+    pub fn draw_srt_on(&self) -> bool {
+        self.settings.draw_srt && self.availability().srt.is_none()
+    }
+
+    /// Whether the sound is made: it is wanted, and the `.osd` file gives what it needs.
+    pub fn sound_on(&self) -> bool {
+        self.settings.make_sound && self.availability().sound.is_none()
     }
 
     /// The mapping between video time and telemetry time.

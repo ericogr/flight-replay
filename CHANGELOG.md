@@ -26,6 +26,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
+- A part of the output that the files cannot give is switched off, with the reason on its step, instead of holding
+  the user at that step: a video with only an `.srt` file gets the SRT data, an `.osd` of Betaflight gets the OSD and
+  no sound, and an OSD that does not show the throttle gets everything but the sound. The summary before the render
+  lists what is left out. A folder is planned the same way, video by video, and a video is left out only when nothing
+  is left to add. What the user asked for is kept for the next video.
+- When the OSD lacks something the sound needs, the sound step names the element to turn on in the INAV Configurator
+  (OSD tab), such as "Throttle Position" or "Current Draw".
 - The FFmpeg command is no longer shown before the render unless "Show the FFmpeg command before rendering" is
   ticked. It is off by default.
 - The picture and the OSD follow the sound while the sound preview plays, and the preview stops at the end of the
@@ -35,6 +42,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- A video with no `.osd` file, or with an OSD of a firmware without telemetry, could not go past the sound step: the
+  sound was on by default and its box could not be unticked.
 - A picture could not be made at the very end of the video, so dragging the preview slider there showed an error.
 - A second run over a folder tried to render the videos that the first run had written.
 - The tests of the window crashed one run in five with the GPU renderer; they use the software renderer now.

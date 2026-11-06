@@ -10,17 +10,15 @@ use crate::app::FlightReplay;
 use crate::message::{Message, OsdEdit};
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
-    let can_draw = app.osd.is_some() && app.font.is_some();
-    let toggle = checkbox(app.settings.draw_osd)
+    let reason = app.availability().osd;
+    let toggle = checkbox(app.draw_osd_on())
         .label("Draw the OSD on the video")
-        .on_toggle_maybe(can_draw.then_some(Message::DrawOsd));
-    let missing = if app.osd.is_none() {
-        Some("There is no .osd file. Go back to the Input step to choose one.")
-    } else if app.font.is_none() {
-        Some("There is no OSD font. Go back to the Input step to choose one.")
-    } else {
-        None
-    };
+        .on_toggle_maybe(reason.is_none().then_some(Message::DrawOsd));
+    let missing = reason.map(|reason| {
+        format!(
+            "{reason} Go back to the Input step to choose one, or go on: the video is then rendered without the OSD."
+        )
+    });
 
     let osd = &app.settings.osd;
     let placement = column![

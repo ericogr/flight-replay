@@ -410,6 +410,173 @@ fn a_motor_preset_changes_the_sound_and_every_value_can_still_be_changed() {
     assert_eq!(motor_preset_in_use(&app.app.settings.sound), Some(0));
 }
 
+/// A copy of the clip in the folder of the harness, with the files that go with it that `with` names (`osd`, `srt`).
+fn clip_with(harness: &Harness, name: &str, with: &[&str]) -> PathBuf {
+    let video = harness.path(&format!("{name}.mp4"));
+    std::fs::copy(fixture("clip-3s.mp4"), &video).expect("the clip");
+    for extension in with {
+        std::fs::copy(
+            fixture(&format!("clip-3s.{extension}")),
+            harness.path(&format!("{name}.{extension}")),
+        )
+        .expect("a file that goes with the clip");
+    }
+    video
+}
+
+#[test]
+fn a_video_with_only_an_srt_file_is_rendered_with_the_srt_data() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    app.send(Message::FileDropped(clip_with(&app, "solo", &["srt"])));
+    assert!(app.app.osd.is_none() && app.app.srt.is_some());
+    assert!(
+        app.app.settings.draw_osd && app.app.settings.make_sound,
+        "what the user asked for is not changed by a missing file"
+    );
+    app.send(Message::GoTo(Step::Overlay));
+    assert!(
+        app.shows("There is no .osd file. Go back to the Input step to choose one, or go on: the video is then rendered without the OSD."),
+        "the OSD step says what happens"
+    );
+    assert!(app.clicks("Draw the OSD on the video").is_empty());
+
+    app.send(Message::GoTo(Step::Srt));
+    app.click("Draw the SRT data on the video");
+    assert!(app.app.settings.draw_srt);
+
+    // The sound cannot be switched on, and the step says so without holding the user back.
+    app.send(Message::GoTo(Step::Sound));
+    assert!(app.clicks("Make the motor sound").is_empty());
+    assert!(app.shows("There is no .osd file. The sound follows the telemetry stored in it."));
+    assert!(app.shows(
+        "The video will be rendered without the motor sound. You can go on to the next step."
+    ));
+    app.snapshot("9a-sound-no-osd");
+    app.click("Next");
+    assert_eq!(app.app.step, Step::Output);
+
+    let output = app.path("solo-out.mp4");
+    app.send(Message::Output(OutputEdit::Path(
+        output.display().to_string(),
+    )));
+    app.click("Next");
+    assert_eq!(app.app.step, Step::Render);
+    assert!(app.shows("Adds: the SRT data"));
+    assert!(app.shows("Left out: the OSD. There is no .osd file."));
+    assert!(app.shows(
+        "Left out: the motor sound. There is no .osd file: the sound follows the telemetry stored in it."
+    ));
+    app.snapshot("9b-render-no-osd");
+
+    app.click("Start the render");
+    let RenderState::Finished(result) = &app.app.render else {
+        panic!("the render is over");
+    };
+    let outcome = result.as_ref().expect("the render succeeded");
+    assert_eq!(outcome.output, output);
+    assert!(outcome.audio_stats.is_none(), "no sound was made");
+}
+
+#[test]
+fn a_firmware_without_telemetry_gets_the_osd_and_no_sound() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let font = app.path("font.png");
+    write_font(&font);
+    let video = clip_with(&app, "btfl", &["srt"]);
+    let mut osd = std::fs::read(fixture("clip-3s.osd")).expect("the OSD of the clip");
+    osd[..4].copy_from_slice(b"BTFL");
+    std::fs::write(app.path("btfl.osd"), osd).expect("a Betaflight OSD");
+
+    app.send(Message::FileDropped(video));
+    app.send(Message::FileDropped(font));
+    assert!(
+        app.app.telemetry.is_some(),
+        "the telemetry is read all the same"
+    );
+    assert!(
+        app.app.draw_osd_on(),
+        "the OSD can be drawn for any firmware"
+    );
+    assert!(!app.app.sound_on());
+
+    app.send(Message::GoTo(Step::Sound));
+    assert!(app.clicks("Make the motor sound").is_empty());
+    let reason = flight_replay_core::telemetry::Profile::Betaflight.explanation();
+    assert!(app.shows(reason), "the step says why there is no sound");
+    app.click("Next");
+    assert_eq!(app.app.step, Step::Output, "and the user goes on");
+
+    let plan = app.app.build_plan().expect("a plan without the sound");
+    assert!(plan.osd_layer.is_some() && plan.sound.is_none());
+}
+
+#[test]
+fn an_osd_without_the_throttle_says_what_to_turn_on_and_goes_on_without_the_sound() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let font = app.path("font.png");
+    write_font(&font);
+    // A column that the recording does not have stands for an OSD that does not show the throttle.
+    app.app.settings.sound.columns.throttle = "osd_not_shown".into();
+    app.send(Message::FileDropped(clip_with(
+        &app,
+        "nothrottle",
+        &["osd", "srt"],
+    )));
+    app.send(Message::FileDropped(font));
+
+    let error = match &app.app.telemetry.as_ref().expect("the telemetry").signals {
+        Err(error) => error.clone(),
+        Ok(_) => panic!("the sound cannot follow a throttle that is not there"),
+    };
+    assert!(error.contains("\"Throttle Position\""), "{error}");
+    assert!(!app.app.sound_on());
+
+    app.send(Message::GoTo(Step::Sound));
+    assert!(app.shows(&error), "the step tells what to turn on");
+    assert!(app.clicks("Make the motor sound").is_empty());
+    app.snapshot("9c-sound-no-throttle");
+    app.click("Next");
+    assert_eq!(app.app.step, Step::Output);
+
+    let plan = app.app.build_plan().expect("a plan without the sound");
+    assert!(plan.osd_layer.is_some() && plan.sound.is_none());
+    assert!(
+        app.app.settings.make_sound,
+        "the choice is kept for the next video"
+    );
+}
+
+#[test]
+fn the_sound_turns_on_again_with_a_video_that_has_an_osd() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    app.send(Message::FileDropped(clip_with(&app, "solo", &[])));
+    assert!(!app.app.sound_on(), "no .osd, no sound");
+    app.send(Message::FileDropped(clip_with(
+        &app,
+        "full",
+        &["osd", "srt"],
+    )));
+    assert!(
+        app.app.sound_on(),
+        "the choice was kept, and the files allow it now"
+    );
+    app.send(Message::GoTo(Step::Sound));
+    app.click("Make the motor sound");
+    assert!(
+        !app.app.settings.make_sound,
+        "and the user can still turn it off"
+    );
+    assert!(!app.app.sound_on());
+}
+
 /// The clip played twice, as one video of about six seconds, in the folder of the harness.
 fn joined_video(harness: &Harness) -> PathBuf {
     let tools = Tools::locate(None).expect("the tools");

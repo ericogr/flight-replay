@@ -96,21 +96,17 @@ impl FlightReplay {
                 self.telemetry = None;
                 self.preview = Preview::default();
             }
+            // What the user asked for stays asked for: what the files cannot give is left out of the render for now
+            // (see `FlightReplay::availability`), and comes back with the file.
             FileKind::Osd => {
                 self.osd = None;
                 self.telemetry = None;
-                self.settings.draw_osd = false;
-                self.settings.make_sound = false;
             }
-            FileKind::Srt => {
-                self.srt = None;
-                self.settings.draw_srt = false;
-            }
+            FileKind::Srt => self.srt = None,
             FileKind::Font => {
                 self.font = None;
                 self.settings.font_path = None;
                 self.scaled_font = None;
-                self.settings.draw_osd = false;
             }
         }
         self.refresh_preview_if_open()
@@ -210,13 +206,11 @@ impl FlightReplay {
         self.rebuild_scaled_font();
 
         let mut tasks = Vec::new();
-        match companions.osd {
-            Some(path) => tasks.push(self.open_file(FileKind::Osd, path)),
-            None => self.settings.draw_osd = false,
+        if let Some(path) = companions.osd {
+            tasks.push(self.open_file(FileKind::Osd, path));
         }
-        match companions.srt {
-            Some(path) => tasks.push(self.open_file(FileKind::Srt, path)),
-            None => self.settings.draw_srt = false,
+        if let Some(path) = companions.srt {
+            tasks.push(self.open_file(FileKind::Srt, path));
         }
         tasks.push(self.refresh_preview());
         Task::batch(tasks)

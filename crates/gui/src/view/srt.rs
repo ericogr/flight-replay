@@ -10,9 +10,10 @@ use crate::app::FlightReplay;
 use crate::message::{Message, SrtEdit};
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
-    let toggle = checkbox(app.settings.draw_srt)
+    let reason = app.availability().srt;
+    let toggle = checkbox(app.draw_srt_on())
         .label("Draw the SRT data on the video")
-        .on_toggle_maybe(app.srt.is_some().then_some(Message::DrawSrt));
+        .on_toggle_maybe(reason.is_none().then_some(Message::DrawSrt));
     let s = &app.settings.srt;
 
     let fields = column![
@@ -72,10 +73,10 @@ pub fn view(app: &FlightReplay) -> Element<'_, Message> {
     .spacing(8);
 
     let mut items = vec![toggle.into()];
-    if app.srt.is_none() {
-        items.push(hint(
-            "There is no .srt file. Go back to the Input step to choose one.",
-        ));
+    if let Some(reason) = reason {
+        items.push(hint(format!(
+            "{reason} Go back to the Input step to choose one, or go on: the video is then rendered without the SRT data."
+        )));
     }
     items.push(section("Preview", preview_block(app, false)));
     items.push(section("Fields", fields));

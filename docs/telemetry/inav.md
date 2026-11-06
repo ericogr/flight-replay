@@ -24,16 +24,21 @@ sample. It is never zero.
 
 ## Signals used by the sound
 
-| Role | Column |
-|------|--------|
-| throttle (required) | `osd_throttle_pct` |
-| current | `osd_current_a` |
-| air speed | `osd_air_speed_kmh` |
-| ground speed | `osd_gps_speed_kmh` |
-| cell voltage | `osd_batt_cell_v` |
-| roll | `osd_roll_deg` |
-| pitch | `osd_pitch_deg` |
-| G-force | `osd_gforce` |
+| Role | Column | OSD element to turn on (INAV Configurator, OSD tab) |
+|------|--------|-----------------------------------------------------|
+| throttle (required) | `osd_throttle_pct` | Throttle Position |
+| current | `osd_current_a` | Current Draw |
+| air speed | `osd_air_speed_kmh` | Air Speed (needs a pitot tube) |
+| ground speed | `osd_gps_speed_kmh` | Ground Speed |
+| cell voltage | `osd_batt_cell_v` | Battery Cell Voltage |
+| roll | `osd_roll_deg` | Roll Angle |
+| pitch | `osd_pitch_deg` | Pitch Angle |
+| G-force | `osd_gforce` | g force |
+
+The last column is what the sound step tells the user when the recording lacks a signal (`Role::osd_element`, in
+`synth/signals.rs`). Without the throttle there is no sound. Without any of the others the sound is made with less to
+follow, and the warnings say what is lost. The ground speed stands in for the air speed, so the air speed is only
+asked for when there is no ground speed either.
 
 ## What the port is checked against
 

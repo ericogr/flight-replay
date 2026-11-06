@@ -77,6 +77,10 @@ impl Step {
 }
 
 /// What the wizard needs to know about the state of the application to decide where the user can go.
+///
+/// The three things that can be added are what will really be added: what the user asked for, less what the files
+/// cannot give (see `flight_replay_core::render::Availability`). So a video with no `.osd` file never holds the user
+/// at a step, it only renders without the OSD and the sound.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -87,22 +91,12 @@ pub struct Context {
     pub tools_found: bool,
     /// A video is open.
     pub video: bool,
-    /// An `.osd` file is open.
-    pub osd: bool,
-    /// An OSD font file is open.
-    pub font: bool,
-    /// An `.srt` file is open.
-    pub srt: bool,
-    /// The OSD is to be drawn.
+    /// The OSD will be drawn.
     pub draw_osd: bool,
-    /// The SRT data is to be drawn.
+    /// The SRT data will be drawn.
     pub draw_srt: bool,
-    /// The sound is to be made.
+    /// The sound will be made.
     pub make_sound: bool,
-    /// Why the firmware of the `.osd` has no sound, if it has none.
-    pub sound_unavailable: Option<String>,
-    /// Why the telemetry cannot drive the sound, if it cannot.
-    pub signals_error: Option<String>,
     /// The output file is chosen.
     pub output_path: bool,
     /// A video encoder is chosen.
@@ -135,32 +129,8 @@ pub fn problems(step: Step, ctx: &Context) -> Vec<String> {
                 problems.push("Open a video.".to_owned());
             }
         }
-        Step::Overlay => {
-            if ctx.draw_osd && !ctx.osd {
-                problems.push("The OSD cannot be drawn without an .osd file. Choose one, or turn the OSD off.".to_owned());
-            }
-            if ctx.draw_osd && !ctx.font {
-                problems.push("Choose the OSD font file, or turn the OSD off.".to_owned());
-            }
-        }
-        Step::Srt => {
-            if ctx.draw_srt && !ctx.srt {
-                problems.push("The SRT data cannot be drawn without an .srt file. Choose one, or turn it off.".to_owned());
-            }
-        }
-        Step::Sound => {
-            if ctx.make_sound && !ctx.osd {
-                problems.push("The sound follows the telemetry in the .osd file. Choose one, or turn the sound off.".to_owned());
-            } else if ctx.make_sound
-                && let Some(reason) = &ctx.sound_unavailable
-            {
-                problems.push(reason.clone());
-            } else if ctx.make_sound
-                && let Some(reason) = &ctx.signals_error
-            {
-                problems.push(reason.clone());
-            }
-        }
+        // These steps only choose how to add what the files allow: they never hold the user back.
+        Step::Overlay | Step::Srt | Step::Sound => {}
         Step::Output => {
             if !ctx.output_path {
                 problems.push("Choose where to save the video.".to_owned());
@@ -172,7 +142,7 @@ pub fn problems(step: Step, ctx: &Context) -> Vec<String> {
         Step::Render => {
             if !ctx.draws() && !ctx.make_sound {
                 problems.push(
-                    "Turn on the OSD, the SRT data or the sound: there is nothing to add."
+                    "There is nothing to add: turn on the OSD, the SRT data or the sound, and give it the files it needs."
                         .to_owned(),
                 );
             }
@@ -202,14 +172,9 @@ mod tests {
         Context {
             tools_found: true,
             video: true,
-            osd: true,
-            font: true,
-            srt: true,
             draw_osd: true,
             draw_srt: true,
             make_sound: true,
-            sound_unavailable: None,
-            signals_error: None,
             output_path: true,
             encoder: true,
         }
@@ -238,36 +203,22 @@ mod tests {
         assert!(problems(Step::Welcome, &none)[0].contains("FFmpeg"));
         assert!(problems(Step::Input, &none)[0].contains("video"));
         assert!(problems(Step::Output, &none)[0].contains("save"));
-
-        let mut ctx = ready();
-        ctx.font = false;
-        assert!(problems(Step::Overlay, &ctx)[0].contains("font"));
-        ctx.draw_osd = false;
-        assert!(
-            problems(Step::Overlay, &ctx).is_empty(),
-            "turning the OSD off clears it"
-        );
     }
 
     #[test]
-    fn the_sound_needs_the_osd_a_supported_firmware_and_the_signals() {
-        let mut ctx = ready();
-        ctx.sound_unavailable = Some("Betaflight: no sound yet.".into());
-        assert_eq!(
-            problems(Step::Sound, &ctx),
-            vec!["Betaflight: no sound yet.".to_owned()]
-        );
-        ctx.sound_unavailable = None;
-        ctx.signals_error = Some("no throttle readings".into());
-        assert_eq!(
-            problems(Step::Sound, &ctx),
-            vec!["no throttle readings".to_owned()]
-        );
-        ctx.make_sound = false;
-        assert_eq!(problems(Step::Sound, &ctx), Vec::<String>::new());
-        ctx.make_sound = true;
-        ctx.osd = false;
-        assert!(problems(Step::Sound, &ctx)[0].contains(".osd"));
+    fn the_steps_that_choose_what_to_add_never_hold_the_user_back() {
+        // Even when nothing is to be added: that is said at the end, where the render starts.
+        let nothing = Context {
+            tools_found: true,
+            video: true,
+            output_path: true,
+            ..Context::default()
+        };
+        for step in [Step::Overlay, Step::Srt, Step::Sound] {
+            assert_eq!(problems(step, &nothing), Vec::<String>::new(), "{step:?}");
+        }
+        assert!(can_go_to(Step::Input, Step::Render, &nothing));
+        assert!(problems(Step::Render, &nothing)[0].contains("nothing to add"));
     }
 
     #[test]

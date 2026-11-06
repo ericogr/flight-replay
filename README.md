@@ -26,6 +26,13 @@ wizard for Linux, Windows and macOS.
 Support: the overlay and the SRT work with INAV and Betaflight OSD files. The sound is read from INAV OSDs. Betaflight
 files get the overlay and no sound until the rules for its screens are written (see [PLAN.md](PLAN.md), phase P4b).
 
+**You get what the files give.** Each part needs its own files, and a part that lacks them is switched off, with the
+reason on its step, while the rest goes on: the OSD needs the `.osd` file and the font, the SRT data need the `.srt`
+file, and the sound needs an INAV `.osd` that shows the throttle. A video with only an `.srt` still gets the SRT data.
+When the OSD does not show something the sound needs, the sound step says which element to turn on in the INAV
+Configurator (OSD tab), such as "Throttle Position", to get it on the next flight. The same is done, video by video,
+for a folder.
+
 ## Install
 
 Download the archive of your system from the releases page, with `SHA256SUMS` to check it.

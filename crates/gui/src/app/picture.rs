@@ -18,7 +18,7 @@ impl FlightReplay {
         let (Some(tools), Some(video)) = (self.tools(), self.video.clone()) else {
             return Task::none();
         };
-        let osd = match (&self.osd, &self.scaled_font, self.settings.draw_osd) {
+        let osd = match (&self.osd, &self.scaled_font, self.draw_osd_on()) {
             (Some(osd), Some(font), true) => Some(OsdPreview {
                 file: Arc::clone(&osd.file),
                 font: Arc::clone(font),
@@ -26,7 +26,7 @@ impl FlightReplay {
             }),
             _ => None,
         };
-        let srt = match (&self.srt, self.settings.draw_srt) {
+        let srt = match (&self.srt, self.draw_srt_on()) {
             (Some(srt), true) => Some(SrtPreview {
                 file: Arc::clone(&srt.file),
                 options: self.settings.srt.clone(),

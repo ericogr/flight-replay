@@ -87,6 +87,10 @@ impl FlightReplay {
                         "videos were"
                     }
                 ));
+                for reason in &planned.left_out {
+                    self.notices
+                        .push(format!("Added without part of it: {reason}"));
+                }
                 for reason in &planned.skipped {
                     self.notices.push(format!("Left out: {reason}"));
                 }

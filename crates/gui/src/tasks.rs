@@ -10,7 +10,7 @@ use flight_replay_core::ffmpeg::{self, Tools};
 use flight_replay_core::font::FontSheet;
 use flight_replay_core::osd::{OsdFile, join};
 use flight_replay_core::paths::{file_name, folder_or_current, parent_folder};
-use flight_replay_core::render::{self, CancelToken, FlightDefaults, RenderPlan, Skipped};
+use flight_replay_core::render::{self, CancelToken, FlightDefaults, LeftOut, RenderPlan, Skipped};
 use flight_replay_core::srt::SrtFile;
 use flight_replay_core::synth::{SignalSet, SoundSettings, render_preview};
 use flight_replay_core::telemetry::{LoadOptions, Profile, Recording};
@@ -252,6 +252,7 @@ pub fn plan_folder(
                 .map_err(|e| format!("could not read {}: {e}", folder.display()))?;
             Ok(Arc::new(FolderQueue {
                 items: plans.plans.into_iter().map(QueueItem::new).collect(),
+                left_out: plans.left_out.iter().map(LeftOut::describe).collect(),
                 skipped: plans.skipped.iter().map(Skipped::describe).collect(),
             }))
         }),

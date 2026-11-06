@@ -24,6 +24,8 @@ impl FlightReplay {
         let Some(video) = &self.video else {
             return Err(vec!["Open a video.".into()]);
         };
+        // Only what the files allow: the rest is left out of the render, and the steps say why.
+        let settings = self.availability().restrict(&self.settings);
         build_plan(&PlanInputs {
             video: video.path.clone(),
             info: video.info.clone(),
@@ -31,7 +33,7 @@ impl FlightReplay {
             osd_path: self.osd.as_ref().map(|o| o.path().to_path_buf()),
             srt: self.srt.as_ref().map(|s| &*s.file),
             font: self.font.as_ref().map(|f| &*f.sheet),
-            settings: &self.settings,
+            settings: &settings,
             encoders: self.encoders.as_ref().map_or(&[], |list| list.as_slice()),
             sync: self.sync.options(),
             window: self.stretch.window(),

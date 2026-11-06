@@ -6,15 +6,19 @@
 //! A [`RenderPlan`] says what to do. [`render`] does it, reporting progress and stopping when asked. The module has no
 //! user interface: the application, or a command-line tool, only builds a plan and calls it.
 
+mod availability;
 mod builder;
 mod events;
 mod folder;
 mod plan;
 mod run;
 
+pub use availability::{Availability, Omission};
 pub use builder::{PlanInputs, build_plan, encoder_choice};
 pub use events::{CancelToken, Event, Stage};
-pub use folder::{FlightDefaults, FlightError, FolderPlans, Skipped, plan_flight, plan_folder};
+pub use folder::{
+    FlightDefaults, FlightError, FolderPlans, LeftOut, Planned, Skipped, plan_flight, plan_folder,
+};
 pub use plan::{
     EncoderChoice, Mode, OsdLayer, OutputPlan, Overwrite, RenderPlan, ResolvedWindow, SrtLayer,
     VideoOutput, Window,

@@ -47,6 +47,22 @@ impl Role {
             Self::Pitch => "pitch",
         }
     }
+
+    /// The element of the INAV OSD that shows the signal, named as the INAV Configurator names it (OSD tab). The
+    /// user turns it on there, and records again.
+    #[must_use]
+    pub fn osd_element(self) -> &'static str {
+        match self {
+            Self::Throttle => "Throttle Position",
+            Self::Current => "Current Draw",
+            Self::AirSpeed => "Air Speed",
+            Self::GpsSpeed => "Ground Speed",
+            Self::CellVoltage => "Battery Cell Voltage",
+            Self::GForce => "g force",
+            Self::Roll => "Roll Angle",
+            Self::Pitch => "Pitch Angle",
+        }
+    }
 }
 
 /// The share of OSD frames in which a signal must have a reading to be trusted, in percent. An element that is
@@ -82,7 +98,7 @@ impl Signal {
 pub enum SignalError {
     /// The recording has no throttle readings, so there is nothing to generate.
     #[error(
-        "{source_name} has no throttle readings (column {column}) in any of its {frames} frames: the motor pitch follows the throttle, so there is nothing to generate. Show the throttle in the OSD and record again, or name the column to use in the sound settings"
+        "{source_name} shows no throttle (column {column}) in any of its {frames} frames, and the motor pitch follows the throttle. In the INAV Configurator, on the OSD tab, turn on \"{element}\" and record again, or name the column to use in the sound settings"
     )]
     NoThrottle {
         /// The recording.
@@ -91,6 +107,8 @@ pub enum SignalError {
         column: String,
         /// Number of OSD frames.
         frames: usize,
+        /// The element of the INAV OSD that shows the throttle.
+        element: &'static str,
     },
 }
 
@@ -101,6 +119,8 @@ pub struct SignalSet {
     pub signals: Vec<Signal>,
     /// What the user should know: signals that are rare, absent or useless, and what that costs the sound.
     pub warnings: Vec<String>,
+    /// The elements of the INAV OSD to turn on to get the signals that are missing (see [`Role::osd_element`]).
+    pub turn_on: Vec<&'static str>,
     source_name: String,
 }
 
@@ -147,6 +167,7 @@ impl SignalSet {
         let mut set = Self {
             signals,
             warnings: Vec::new(),
+            turn_on: Vec::new(),
             source_name: source_name.to_owned(),
         };
         if set.lacks(Role::Throttle) {
@@ -154,6 +175,7 @@ impl SignalSet {
                 source_name: source_name.to_owned(),
                 column: set.column(Role::Throttle),
                 frames,
+                element: Role::Throttle.osd_element(),
             });
         }
         set.warn_sparse();
@@ -267,7 +289,8 @@ impl SignalSet {
             // nothing to say
         } else if let Some(gps_column) = gps_column {
             let effect = format!("the wind will follow the ground speed ({gps_column}) instead");
-            self.note_lost(Role::AirSpeed, "airspeed", &effect);
+            // The ground speed stands in, so there is no need to ask for an air speed (it takes a pitot tube).
+            self.warn_lost(Role::AirSpeed, "airspeed", &effect);
         } else {
             let columns: Vec<String> = [Role::AirSpeed, Role::GpsSpeed]
                 .into_iter()
@@ -281,6 +304,11 @@ impl SignalSet {
                     columns.join(", ")
                 );
                 self.warnings.push(message);
+                for role in [Role::GpsSpeed, Role::AirSpeed] {
+                    if self.lacks(role) {
+                        self.turn_on.push(role.osd_element());
+                    }
+                }
             }
         }
 
@@ -312,8 +340,17 @@ impl SignalSet {
         }
     }
 
-    /// Adds a warning if the role is on in the settings but the recording has no readings of it.
+    /// Adds a warning if the role is on in the settings but the recording has no readings of it, and the element of
+    /// the OSD that would give them.
     fn note_lost(&mut self, role: Role, what: &str, effect: &str) {
+        if self.lacks(role) {
+            self.warn_lost(role, what, effect);
+            self.turn_on.push(role.osd_element());
+        }
+    }
+
+    /// Adds a warning if the role is on in the settings but the recording has no readings of it.
+    fn warn_lost(&mut self, role: Role, what: &str, effect: &str) {
         if self.lacks(role) {
             let message = format!(
                 "no {what} readings in {} ({}): {effect}",
@@ -322,5 +359,90 @@ impl SignalSet {
             );
             self.warnings.push(message);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::telemetry::Row;
+
+    /// A table of ten rows with only the columns named, all with a reading in every row.
+    fn table(columns: &[&str]) -> Table {
+        let rows = (0..10)
+            .map(|i| {
+                let mut row = Row {
+                    time: f64::from(i),
+                    ..Row::default()
+                };
+                for column in columns {
+                    row.numbers
+                        .insert((*column).to_owned(), 50.0 + f64::from(i));
+                }
+                row
+            })
+            .collect();
+        Table::new(rows).unwrap()
+    }
+
+    fn collect(columns: &[&str]) -> Result<SignalSet, SignalError> {
+        SignalSet::collect(&table(columns), &SoundSettings::default(), "a.osd", 10)
+    }
+
+    #[test]
+    fn a_recording_without_the_throttle_says_which_element_to_turn_on() {
+        let error = collect(&["osd_current_a"]).unwrap_err().to_string();
+        assert!(error.contains("\"Throttle Position\""), "{error}");
+        assert!(error.contains("OSD tab"), "{error}");
+    }
+
+    #[test]
+    fn a_recording_with_everything_asks_for_nothing() {
+        let all = [
+            "osd_throttle_pct",
+            "osd_current_a",
+            "osd_air_speed_kmh",
+            "osd_gps_speed_kmh",
+            "osd_batt_cell_v",
+            "osd_gforce",
+            "osd_roll_deg",
+            "osd_pitch_deg",
+        ];
+        let set = collect(&all).unwrap();
+        assert!(set.turn_on.is_empty(), "{:?}", set.turn_on);
+    }
+
+    #[test]
+    fn each_missing_signal_names_the_element_that_gives_it() {
+        let set = collect(&["osd_throttle_pct", "osd_gps_speed_kmh"]).unwrap();
+        assert_eq!(
+            set.turn_on,
+            [
+                "Current Draw",
+                "Battery Cell Voltage",
+                "Roll Angle",
+                "Pitch Angle"
+            ],
+            "the ground speed stands in for the air speed, so that is not asked for"
+        );
+    }
+
+    #[test]
+    fn without_any_speed_both_speeds_are_asked_for() {
+        let set = collect(&["osd_throttle_pct"]).unwrap();
+        assert!(
+            set.turn_on.contains(&"Ground Speed") && set.turn_on.contains(&"Air Speed"),
+            "{:?}",
+            set.turn_on
+        );
+    }
+
+    #[test]
+    fn a_signal_the_settings_turn_off_is_not_asked_for() {
+        let mut settings = SoundSettings::default();
+        settings.columns.current.clear();
+        let set =
+            SignalSet::collect(&table(&["osd_throttle_pct"]), &settings, "a.osd", 10).unwrap();
+        assert!(!set.turn_on.contains(&"Current Draw"), "{:?}", set.turn_on);
     }
 }

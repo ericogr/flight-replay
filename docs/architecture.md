@@ -25,13 +25,22 @@ draw), it goes in the core, where a command line can use it too.
 | `timeline` | The one mapping between video time and telemetry time (offset and speed), used by the overlay and by the sound so they agree. |
 | `synth` | The sound: settings, signals taken from the telemetry, and the engine (oscillators, filters, noise, limiter). It is deterministic: the same input gives the same bytes, whatever the block size. |
 | `audio` | PCM and WAV writing. |
-| `render` | `RenderPlan` (everything a render needs), `build_plan` (makes one from the files and the settings), `plan_folder` (makes one for each video of a folder), `render` (does it, with progress and cancelling), and the check of the output. |
+| `render` | `RenderPlan` (everything a render needs), `build_plan` (makes one from the files and the settings), `Availability` (what the files at hand allow, and why not), `plan_folder` (makes one for each video of a folder), `render` (does it, with progress and cancelling), and the check of the output. |
 | `config` | The settings of a render, and how to read and write settings files. |
 | `discover` | Finds the `.osd` and `.srt` next to a video, and the videos of a folder. Knows the names of the files Flight Replay writes. |
 | `paths`, `display` | Small helpers for paths and for writing times in messages, so every place does it the same way. |
 
 Errors in the core are types (`thiserror`), so a caller can tell them apart. Text for the user is written where an
 error is shown.
+
+### What the files allow
+
+The OSD, the SRT data and the sound each need files: the OSD an `.osd` and a font, the SRT data an `.srt`, the sound an
+`.osd` of a firmware whose telemetry is read, with the throttle in it. `Availability` says, for each, why it cannot be
+made, if it cannot. What the user asked for and the files cannot give is left out of the render, with the reason; it
+is never an error, and the user's choice is not changed (it comes back with the file). The application and
+`plan_flight` both apply it before `build_plan`, which stays strict: it still lists everything wrong with what it is
+given. A flight is refused only when nothing is left to add.
 
 ### A render
 
@@ -86,7 +95,8 @@ Things worth knowing:
 - What the user types is kept as text (`SyncInput`, `StretchInput`) and read when it is needed, so there is one copy
   of each choice and nothing to keep in step.
 - The wizard rules (`wizard.rs`) take a plain `Context` of facts, so the rules about what may come next are tested
-  without a window.
+  without a window. The facts about what is added are the effective ones (asked for, and allowed by the files), so the
+  steps that choose what to add never hold the user back.
 - The settings of a render live in the core (`Settings`). The window keeps its own things in `Preferences` and
   writes both to one `settings.toml`: the preferences at the top, then the settings. The core can still read that
   file by itself.

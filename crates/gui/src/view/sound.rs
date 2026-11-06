@@ -15,9 +15,8 @@ use crate::sound_params::{self, Group};
 use flight_replay_core::display::clock_tenths;
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
-    let unavailable = app.sound_unavailable();
-    let can_make = app.osd.is_some() && unavailable.is_none();
-    let toggle = checkbox(app.settings.make_sound)
+    let can_make = app.availability().sound.is_none();
+    let toggle = checkbox(app.sound_on())
         .label("Make the motor sound")
         .on_toggle_maybe(can_make.then_some(Message::MakeSound));
 
@@ -26,9 +25,13 @@ pub fn view(app: &FlightReplay) -> Element<'_, Message> {
         items.push(hint(
             "There is no .osd file. The sound follows the telemetry stored in it.",
         ));
-    }
-    if let Some(reason) = unavailable {
+    } else if let Some(reason) = app.files_allow().sound {
         items.push(problem(reason));
+    }
+    if !can_make && !app.busy.telemetry {
+        items.push(hint(
+            "The video will be rendered without the motor sound. You can go on to the next step.",
+        ));
     }
     if app.osd.is_some() {
         items.push(section("What the recording gives the sound", coverage(app)));
@@ -56,11 +59,29 @@ fn coverage(app: &FlightReplay) -> Element<'_, Message> {
             for warning in &signals.warnings {
                 lines = lines.push(hint(format!("• {warning}")));
             }
+            if !signals.turn_on.is_empty() {
+                lines = lines.push(turn_on_hint(&signals.turn_on));
+            }
             lines.into()
         }
         Err(error) if error.is_empty() => text("Checking the signals…").into(),
         Err(error) => problem(error.clone()),
     }
+}
+
+/// Tells which elements of the INAV OSD to turn on to give the sound what it lacks.
+fn turn_on_hint<'a>(elements: &[&str]) -> Element<'a, Message> {
+    let mut names: Vec<String> = Vec::new();
+    for element in elements {
+        let name = format!("\"{element}\"");
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    hint(format!(
+        "To give the sound more to follow, turn on these elements in the INAV Configurator (OSD tab) and record again: {}.",
+        names.join(", ")
+    ))
 }
 
 fn listen(app: &FlightReplay) -> Element<'_, Message> {
