@@ -201,3 +201,132 @@ mod telemetry {
         }
     }
 }
+
+mod sound {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    use flight_replay_core::synth::{Engine, SignalSet, SoundSettings};
+    use flight_replay_core::telemetry::{LoadOptions, Recording};
+    use flight_replay_core::timeline::{ScaleMode, SyncOptions, Timeline};
+
+    use super::samples;
+
+    /// The lines `motorsound --dry-run -v AvatarG0153.mp4 AvatarG0153.osd` prints about the signals.
+    #[test]
+    fn the_signal_report_matches_the_go_dry_run() {
+        let Some(dir) = samples() else { return };
+        let recording =
+            Recording::load(&dir.join("AvatarG0153.osd"), LoadOptions::default()).unwrap();
+        let signals = SignalSet::collect(
+            &recording.table,
+            &SoundSettings::default(),
+            "AvatarG0153.osd",
+            recording.frames,
+        )
+        .unwrap();
+        assert_eq!(
+            signals.describe(),
+            "found throttle, current, gps_speed, cell_voltage; not in the .osd: air_speed, gforce, roll, pitch"
+        );
+        assert_eq!(
+            signals.warnings,
+            vec![
+                "only 0% of the OSD frames show osd_gps_speed_kmh (gps_speed); the rest repeat the last reading. Is the element hidden or blinking?",
+                "no airspeed readings in AvatarG0153.osd (osd_air_speed_kmh): the wind will follow the ground speed (osd_gps_speed_kmh) instead",
+                "no roll readings in AvatarG0153.osd (osd_roll_deg): the wind will not pan between left and right with the bank angle",
+                "no pitch readings in AvatarG0153.osd (osd_pitch_deg): the load will not follow the climb angle",
+            ]
+        );
+    }
+
+    /// Renders ten seconds from the second 120 of `AvatarG0153` with the Go motorsound (named by
+    /// `FLIGHT_REPLAY_MOTORSOUND`) and with the Rust engine, on the same telemetry and settings, and compares the
+    /// samples.
+    #[test]
+    fn the_audio_matches_the_go_program_sample_by_sample() {
+        let Some(dir) = samples() else { return };
+        let Some(go) = std::env::var_os("FLIGHT_REPLAY_MOTORSOUND").map(PathBuf::from) else {
+            eprintln!("skipping: FLIGHT_REPLAY_MOTORSOUND is not set");
+            return;
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let reference = temp.path().join("go.wav");
+        let status = Command::new(&go)
+            .args([
+                "--quiet",
+                "--force",
+                "--start",
+                "00:02:00",
+                "--duration",
+                "10s",
+                "--time-scale",
+                "1.000059",
+                "-o",
+            ])
+            .arg(&reference)
+            .arg(dir.join("AvatarG0153.mp4"))
+            .arg(dir.join("AvatarG0153.osd"))
+            .output()
+            .unwrap();
+        assert!(
+            status.status.success(),
+            "{}",
+            String::from_utf8_lossy(&status.stderr)
+        );
+        let wav = std::fs::read(&reference).unwrap();
+        let expected: Vec<i16> = wav[44..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| i16::from_le_bytes(*b))
+            .collect();
+
+        let recording =
+            Recording::load(&dir.join("AvatarG0153.osd"), LoadOptions::default()).unwrap();
+        let settings = SoundSettings::default();
+        let signals = SignalSet::collect(
+            &recording.table,
+            &settings,
+            "AvatarG0153.osd",
+            recording.frames,
+        )
+        .unwrap();
+        let sync = SyncOptions {
+            scale: ScaleMode::Manual { scale: 1.000_059 },
+            offset_s: 0.0,
+        };
+        let timeline = Timeline::new(sync, 846.1, 845.893);
+        let mut engine = Engine::new(settings, signals.controls(), timeline, 120.0).unwrap();
+        let got = engine.render_s16(480_000);
+
+        assert_eq!(got.len(), expected.len(), "the same number of samples");
+        let differences: Vec<u32> = got
+            .iter()
+            .zip(&expected)
+            .map(|(a, b)| u32::from(a.abs_diff(*b)))
+            .collect();
+        let worst = *differences.iter().max().unwrap();
+        let different = differences.iter().filter(|&&d| d > 0).count();
+        eprintln!(
+            "worst difference {worst} LSB; {different} of {} samples differ",
+            got.len()
+        );
+        assert!(
+            worst <= 2,
+            "the Rust audio differs from the Go audio by up to {worst} LSB"
+        );
+        let render_stats = engine.stats();
+        // the Go program reported: peak -4.6 dBFS, rms -16.2 dBFS
+        assert!(
+            (20.0 * render_stats.peak.log10() + 4.6).abs() < 0.1,
+            "peak {} dBFS",
+            20.0 * render_stats.peak.log10()
+        );
+        assert!(
+            (20.0 * render_stats.rms.log10() + 16.2).abs() < 0.1,
+            "rms {} dBFS",
+            20.0 * render_stats.rms.log10()
+        );
+    }
+}

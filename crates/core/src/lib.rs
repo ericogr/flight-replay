@@ -10,11 +10,13 @@
 #![warn(missing_docs)]
 
 pub mod assets;
+pub mod audio;
 pub mod ffmpeg;
 pub mod font;
 pub mod osd;
 pub mod overlay;
 pub mod srt;
+pub mod synth;
 pub mod telemetry;
 pub mod timeline;
 

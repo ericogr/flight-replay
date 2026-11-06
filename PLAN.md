@@ -589,12 +589,12 @@ phase that is not started yet are not blocked by anything else unless the text s
 
 **P5: sound engine**
 
-- [ ] Port the synth (blocks, smoothers, filters, limiter)
-- [ ] Port the WAV writer (`hound`)
-- [ ] Determinism tests: same seed gives the same bytes; the output does not depend on the block size
-- [ ] Frequency tolerance test (within 0.1 %)
-- [ ] Compare with fpv-motorsound's output on the same telemetry
-- [ ] Audio preview segment in the core
+- [x] Port the synth (blocks, smoothers, filters, limiter)
+- [x] Port the WAV writer (a small writer in the project, so no `hound` dependency)
+- [x] Determinism tests: same seed gives the same bytes; the output does not depend on the block size
+- [x] Frequency tolerance test (within 0.1 %)
+- [x] Compare with fpv-motorsound's output on the same telemetry
+- [x] Audio preview segment in the core
 
 **P6: render pipeline**
 
