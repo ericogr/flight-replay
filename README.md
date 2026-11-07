@@ -14,7 +14,7 @@ wizard for Linux, Windows and macOS.
 - **The SRT data on the picture.** Signal, latency, bitrate, distance, battery and time, where you want them.
 - **A motor sound.** The telemetry is read from the OSD screens (throttle, current, battery voltage, and the speed,
   roll and pitch when the OSD shows them), and drives a synthesized motor, propeller and wind sound. Every parameter
-  can be changed, listened to, and saved as a preset. Seven ready-made sounds, for different electric motors and
+  can be changed, listened to, and saved as a preset. Eight ready-made sounds, for different electric motors and
   propellers, are the starting point. See [docs/audio-model.md](docs/audio-model.md).
 - **Encoding.** libx264, libx265 and the hardware encoders FFmpeg has on your machine (NVENC, QSV, AMF,
   VideoToolbox, VAAPI), found by a test encode. Optional 1440p scaling, and a green background for compositing in an

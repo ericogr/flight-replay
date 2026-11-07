@@ -91,6 +91,11 @@ pub const MOTOR_PRESETS: &[MotorPreset] = &[
         build: small_park_flyer,
     },
     MotorPreset {
+        name: "Small high-KV motor",
+        description: "A tiny, high-KV motor spinning a small propeller very fast: a piercing, thin tone with a loud whine, and almost no lag.",
+        build: small_high_kv,
+    },
+    MotorPreset {
         name: "Sport plane, three blades",
         description: "A three-blade propeller: a higher blade pass and a smoother, rounder sound with broader air noise.",
         build: three_blade_sport,
@@ -145,6 +150,42 @@ fn small_park_flyer() -> SoundSettings {
             center_high_hz: 4200.0,
             q: 1.2,
             blade_mod_depth: 0.25,
+        },
+        ..SoundSettings::default()
+    }
+}
+
+/// A small brushless motor of high KV on a small propeller, as on a foam or micro plane: it turns at 20,000 rpm and
+/// more, so the blade pass is the highest of the presets, the rotor is so light that it follows the throttle almost
+/// at once, and the whine of the motor and the hiss of the small propeller sit high in the spectrum.
+fn small_high_kv() -> SoundSettings {
+    SoundSettings {
+        motor: MotorSettings {
+            f_idle_hz: 260.0,
+            f_max_hz: 950.0,
+            ..MotorSettings::default()
+        },
+        smoothing: SmoothingSettings {
+            throttle_attack_s: 0.05,
+            throttle_release_s: 0.14,
+            current_attack_s: 0.05,
+            current_release_s: 0.14,
+            ..SmoothingSettings::default()
+        },
+        tone: ToneSettings {
+            gain: 0.57,
+            harmonics: vec![1.0, 0.35, 0.14, 0.06, 0.03],
+            brightness: 0.75,
+            whine_ratio: 6.0,
+            whine_gain: 0.18,
+            stereo_width: 0.35,
+        },
+        prop_noise: PropNoiseSettings {
+            gain: 0.95,
+            center_low_hz: 2400.0,
+            center_high_hz: 6000.0,
+            q: 1.4,
+            blade_mod_depth: 0.12,
         },
         ..SoundSettings::default()
     }

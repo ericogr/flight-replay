@@ -18,10 +18,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - A queue of videos, with every video of a folder, and videos made of several `.osd` files.
 - Archives for Linux, Windows and macOS (`make dist`), a Linux desktop entry and icons, and `Flight Replay.app`.
 - `docs/architecture.md`.
-- Ready-made motor sounds for different electric motors and propellers (small park flyer, three blades, aerobatic
-  power, large slow propeller, pusher, ducted fan), next to the default. They are a starting point: every value can
-  still be changed, and the sound list says "Custom" when one was. Two more sliders, the whine pitch and the sharpness
-  of the propeller noise.
+- Ready-made motor sounds for different electric motors and propellers (small park flyer, small high-KV motor, three
+  blades, aerobatic power, large slow propeller, pusher, ducted fan), next to the default. They are a starting point:
+  every value can still be changed, and the sound list says "Custom" when one was. Two more sliders, the whine pitch
+  and the sharpness of the propeller noise.
 - An option to show the FFmpeg command before rendering.
 - "Reset all settings…" in the welcome step. It asks for a confirmation, and then brings every setting and preference
   back to the default: the colour scheme, the FFmpeg folder, the OSD font, the saved sounds and the choices of every

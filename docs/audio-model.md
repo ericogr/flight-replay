@@ -26,6 +26,7 @@ The sound step offers ready-made sounds for different electric motors and propel
 |--------|----------------|
 | Default | The sound the program starts with: a two-blade propeller, a warm mid-range tone |
 | Small park flyer | A small propeller turning fast: high and thin, some whine, quick response |
+| Small high-KV motor | A tiny high-KV motor on a small propeller, 20,000 rpm and more: the highest pitch, a thin piercing tone, a loud whine, almost no lag |
 | Sport plane, three blades | A higher blade pass, a rounder tone and broader air noise |
 | Aerobatic power | A big motor on a short propeller: hard, bright and buzzy, answers the throttle at once |
 | Large slow propeller | Long-range plane or motor glider: deep and rich, chops the air, slow to follow |

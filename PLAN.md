@@ -792,3 +792,11 @@ These do not block P0. The defaults are used unless the owner changes them.
     exist in the file moved from the constructor of the application to `preferences::load`, where it is tested without
     FFmpeg; a settings file that could not be written was only logged and is now said to the user once; closing the
     window wrote the file even when nothing had changed, and now shares `flush_settings` with the timer.
+- Revision 13, 2026-11-06: a preset for a small motor of high KV on a small plane.
+  - `Small high-KV motor` (`synth::MOTOR_PRESETS`, eight in all): the highest blade pass of the presets (260 to 950 Hz,
+    inside the sliders; a 2-blade 5x3 propeller at 20,000 to 28,000 rpm), a rotor so light that the pitch and the
+    volume follow the throttle in 0.05 s up and 0.14 s down, few and weak harmonics, a loud whine at six times the
+    pitch, and a thin, high band of propeller noise. Level on the throttle sweep: 0.09 dB under the default; the other
+    presets are within 0.4 dB. It is at least 5.1 dB away from the nearest preset (the small park flyer) in an octave
+    band, against the 3 dB the test asks for.
+  - Not done: it was measured, not listened to, like the others.
