@@ -200,15 +200,7 @@ fn font(app: &FlightReplay) -> Element<'_, Message> {
     let is_file = matches!(open, Some(FontSource::File(_)));
     let built_in = labeled(
         "Built in",
-        row![
-            pick_list(bundled, in_use, Message::UseBundledFont).placeholder("Choose a font…"),
-            action(
-                "Remove",
-                (in_use.is_some() && !busy).then_some(Message::Clear(FileKind::Font))
-            ),
-        ]
-        .spacing(8)
-        .align_y(iced::Alignment::Center),
+        pick_list(bundled, in_use, Message::UseBundledFont).placeholder("Choose a font…"),
     );
     let from_file = labeled(
         "Or a file",
@@ -220,10 +212,6 @@ fn font(app: &FlightReplay) -> Element<'_, Message> {
             action(
                 if is_file { "Change…" } else { "Choose…" },
                 (!busy).then_some(Message::Browse(FileKind::Font))
-            ),
-            action(
-                "Remove",
-                (is_file && !busy).then_some(Message::Clear(FileKind::Font))
             ),
         ]
         .spacing(12)
