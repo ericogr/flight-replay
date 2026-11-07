@@ -16,6 +16,8 @@ pub struct Stats {
     pub max: f64,
     /// Mean of the readings.
     pub mean: f64,
+    /// Time of the first row that had a reading, in seconds.
+    pub first_time: f64,
     /// Time of the last row that had a reading, in seconds.
     pub last_time: f64,
 }
@@ -81,12 +83,16 @@ impl Series {
             min: f64::INFINITY,
             max: f64::NEG_INFINITY,
             mean: 0.0,
+            first_time: 0.0,
             last_time: 0.0,
         };
         let mut sum = 0.0;
         for (index, &value) in raw.iter().enumerate() {
             if value.is_nan() {
                 continue;
+            }
+            if stats.valid == 0 {
+                stats.first_time = times[index];
             }
             stats.valid += 1;
             stats.last_time = times[index];
@@ -138,6 +144,18 @@ impl Series {
         let limit = self.stats.last_time + max_age;
         for (time, value) in self.times.iter().zip(self.values.iter_mut()) {
             if *time > limit {
+                *value = 0.0;
+            }
+        }
+    }
+
+    /// Sets the series to zero until its first reading. Before that the OSD did not show the value (a splash screen,
+    /// an element that is not drawn yet), and [`fill_forward`] would otherwise copy the first reading back over all
+    /// of it. Call it before the series is read.
+    pub fn zero_before_first_reading(&mut self) {
+        let first = self.stats.first_time;
+        for (time, value) in self.times.iter().zip(self.values.iter_mut()) {
+            if *time < first {
                 *value = 0.0;
             }
         }
@@ -267,6 +285,7 @@ mod tests {
         assert_eq!(s.stats.min, 4.0);
         assert_eq!(s.stats.max, 8.0);
         assert!((s.stats.mean - 6.0).abs() < 1e-12);
+        assert_eq!(s.stats.first_time, 1.0);
         assert_eq!(s.stats.last_time, 3.0);
         assert!((s.stats.coverage_pct() - 50.0).abs() < 1e-12);
     }
@@ -288,5 +307,27 @@ mod tests {
         s.zero_after_last_reading(2.0);
         // last reading at t = 1; held until t = 3, zero after
         assert_eq!(s.values, vec![5.0, 6.0, 6.0, 6.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn zeroes_the_series_before_its_first_reading() {
+        let mut s = series(
+            &[0.0, 1.0, 2.0, 3.0, 4.0],
+            &[f64::NAN, f64::NAN, 8.0, f64::NAN, 9.0],
+        );
+        // back-filled by default
+        assert_eq!(s.values, vec![8.0, 8.0, 8.0, 8.0, 9.0]);
+        s.zero_before_first_reading();
+        // the first reading is at t = 2: nothing before it, and the gap after it is still carried
+        assert_eq!(s.values, vec![0.0, 0.0, 8.0, 8.0, 9.0]);
+        assert_eq!(s.stats.first_time, 2.0);
+    }
+
+    #[test]
+    fn a_series_that_starts_with_a_reading_is_not_changed_by_zeroing_the_start() {
+        let mut s = series(&[0.0, 1.0, 2.0], &[4.0, f64::NAN, 6.0]);
+        let before = s.values.clone();
+        s.zero_before_first_reading();
+        assert_eq!(s.values, before);
     }
 }

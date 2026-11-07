@@ -18,6 +18,11 @@ use crate::telemetry::inav;
 /// The angle between two home-direction arrow glyphs (16 of them).
 const ARROW_STEP_DEG: f64 = 22.5;
 
+/// What INAV writes after the throttle icon, in place of the number, when the throttle is not above zero: `STOP`
+/// (armed, motor stopped), `IDLE` (armed, motor idling) or `DARM` (disarmed). See `osdFormatThrottlePosition` in
+/// the INAV source.
+const THROTTLE_OFF_WORDS: [&str; 3] = ["STOP", "IDLE", "DARM"];
+
 /// In the order of the glyphs of the three axes.
 const GFORCE_AXIS_KEYS: [&str; 3] = [KEY_GFORCE_X, KEY_GFORCE_Y, KEY_GFORCE_Z];
 
@@ -31,6 +36,8 @@ pub(super) fn rules() -> Vec<Rule> {
         sym(inav::LABEL_AUTO_THROTTLE_1),
         sym(inav::ICON_THROTTLE)
     );
+    // a percentage (negative when the stick is a little below the end of its range) or one of the words
+    let throttle_value = format!("(-?[0-9]+|{})", THROTTLE_OFF_WORDS.join("|"));
     let roll_icons = format!(
         "({})",
         syms(&[
@@ -51,7 +58,10 @@ pub(super) fn rules() -> Vec<Rule> {
         sym_range(inav::HOME_ARROW_FIRST, inav::HOME_ARROW_LAST)
     );
     vec![
-        rule(&[&throttle_icons, SPACE_RE, "([0-9]+)"], Box::new(throttle)),
+        rule(
+            &[&throttle_icons, SPACE_RE, &throttle_value],
+            Box::new(throttle),
+        ),
         // The angles that end with the degrees glyph. The home heading error goes before the heading, whose rule
         // would take it.
         rule(
@@ -110,7 +120,14 @@ pub(super) fn rules() -> Vec<Rule> {
 }
 
 /// Reads the throttle in group 2; the glyphs in group 1 say whether navigation is controlling it.
+///
+/// A word (`STOP`, `IDLE`, `DARM`) is a throttle of zero. It takes the place of the auto-throttle glyphs too, so
+/// whether navigation was in control cannot be told, and no auto-throttle reading is stored.
 fn throttle(groups: &[String], sample: &mut Sample) {
+    if THROTTLE_OFF_WORDS.contains(&groups[2].as_str()) {
+        sample.num(KEY_THROTTLE_PCT, 0.0);
+        return;
+    }
     int_field(KEY_THROTTLE_PCT, 2)(groups, sample);
     let auto = if first_glyph(&groups[1]) == inav::LABEL_AUTO_THROTTLE_0 {
         1.0
@@ -131,4 +148,69 @@ fn gforce_axis(groups: &[String], sample: &mut Sample) {
 fn home_arrow(groups: &[String], sample: &mut Sample) {
     let step = f64::from(first_glyph(&groups[1]) - inav::HOME_ARROW_FIRST);
     sample.num(KEY_HOME_DIR_DEG, step * ARROW_STEP_DEG);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::telemetry::decoder::rule::glyph_char;
+
+    /// Runs the rules of this module on a line with one character per cell.
+    fn read(line: &str) -> Sample {
+        let mut sample = Sample::default();
+        let mut line = line.to_owned();
+        for rule in rules() {
+            line = rule.apply(&line, &mut sample);
+        }
+        sample
+    }
+
+    fn manual(text: &str) -> String {
+        format!("{}{text}", glyph_char(inav::ICON_THROTTLE))
+    }
+
+    fn auto(text: &str) -> String {
+        format!(
+            "{}{}{text}",
+            glyph_char(inav::LABEL_AUTO_THROTTLE_0),
+            glyph_char(inav::LABEL_AUTO_THROTTLE_1)
+        )
+    }
+
+    #[test]
+    fn the_throttle_is_read_as_a_percentage() {
+        let sample = read(&manual("  8"));
+        assert_eq!(sample.number(KEY_THROTTLE_PCT), Some(8.0));
+        assert_eq!(sample.number(KEY_THROTTLE_AUTO), Some(0.0));
+        assert_eq!(read(&manual("100")).number(KEY_THROTTLE_PCT), Some(100.0));
+
+        let sample = read(&auto(" 42"));
+        assert_eq!(sample.number(KEY_THROTTLE_PCT), Some(42.0));
+        assert_eq!(sample.number(KEY_THROTTLE_AUTO), Some(1.0));
+    }
+
+    #[test]
+    fn the_words_inav_shows_for_a_throttle_of_zero_read_as_zero() {
+        // INAV writes the icon and then STOP, IDLE or DARM, with no blank between
+        for word in ["STOP", "IDLE", "DARM"] {
+            let sample = read(&manual(word));
+            assert_eq!(sample.number(KEY_THROTTLE_PCT), Some(0.0), "{word}");
+            // the word replaces the auto-throttle glyphs, so who was in control is unknown
+            assert!(!sample.contains(KEY_THROTTLE_AUTO), "{word}");
+        }
+    }
+
+    #[test]
+    fn a_throttle_a_little_below_zero_is_read_as_it_is_shown() {
+        // " -1": the stick is just under the end of its range
+        let sample = read(&manual(" -1"));
+        assert_eq!(sample.number(KEY_THROTTLE_PCT), Some(-1.0));
+        assert_eq!(sample.number(KEY_THROTTLE_AUTO), Some(0.0));
+    }
+
+    #[test]
+    fn the_icon_with_some_other_text_is_not_a_throttle() {
+        assert!(!read(&manual("GOOD")).contains(KEY_THROTTLE_PCT));
+        assert!(!read(&manual("   ")).contains(KEY_THROTTLE_PCT));
+    }
 }

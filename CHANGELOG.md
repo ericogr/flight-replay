@@ -65,6 +65,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- The motor sounded while it was stopped. The decoder read only a number after the throttle icon, so a recording that
+  shows `STOP`, `IDLE` or `DARM` there (or a negative percentage) had no reading for those frames, and the sound held
+  the last throttle through them. The frames before the first reading were also given the first reading. A
+  recording that began with `STOP` on the screen had the motor at the first percentage seen for those seconds, and a
+  flight whose throttle shows ` -1` while gliding had it at the last positive value. The words are now read as a
+  throttle of 0, a negative percentage as shown, and the throttle is 0 until its first reading.
 - The grid of the OSD cells (the one for hiding elements by clicking) stayed on the previews of the SRT data step and
   of the sound step when the choice of hiding elements was left on. It is on the picture of the OSD step only.
 - A motor sound that finished being made after the user had moved to another step started playing there. It is

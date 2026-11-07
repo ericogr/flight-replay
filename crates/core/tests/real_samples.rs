@@ -94,7 +94,6 @@ mod telemetry {
 
         // column, readings, minimum, maximum, mean
         let expected = [
-            ("osd_throttle_pct", 5005, 3.0, 59.0, 36.86),
             ("osd_current_a", 4789, 0.74, 36.70, 7.91),
             ("osd_gps_speed_kmh", 22, 63.0, 63.0, 63.0),
             ("osd_batt_cell_v", 5322, 3.34, 3.92, 3.61),
@@ -118,6 +117,23 @@ mod telemetry {
                 stats.mean
             );
         }
+        // The throttle is the one column that reads more than the Go program: where INAV shows STOP, IDLE or DARM
+        // (or a negative percentage) instead of a percentage, this decoder reads 0 (or the negative number) where
+        // Go reads nothing (see docs/telemetry/inav.md). The Go program counted 5005 readings, from 3 to 59 with a
+        // mean of 36.86. This one keeps all of those and adds the others, so the count cannot be smaller, the
+        // minimum cannot be above 3, the maximum is the same, and the mean can only go down (it is not checked).
+        let throttle = recording.table.series("osd_throttle_pct").unwrap().stats;
+        assert!(
+            throttle.valid >= 5005,
+            "throttle readings {}",
+            throttle.valid
+        );
+        assert!(throttle.min <= 3.0, "throttle min {}", throttle.min);
+        assert!(
+            (throttle.max - 59.0).abs() < 0.005,
+            "throttle max {}",
+            throttle.max
+        );
         for column in [
             "osd_air_speed_kmh",
             "osd_gforce",

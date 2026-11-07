@@ -71,7 +71,7 @@ pub const MIN_COVERAGE_PCT: f64 = 50.0;
 
 /// How long, in seconds, the throttle is held after its last reading. Once the OSD stops showing it the motor is off
 /// (disarmed, or the recording has ended), so the motor then stops instead of running at the last value for the rest
-/// of the video.
+/// of the video. Before the first reading the motor is off too (see [`Series::zero_before_first_reading`]).
 pub const MOTOR_HOLD_S: f64 = 2.0;
 
 /// A telemetry column the sound model can use, looked up in the recording.
@@ -155,6 +155,7 @@ impl SignalSet {
             if role == Role::Throttle
                 && let Some(series) = series.as_mut()
             {
+                series.zero_before_first_reading();
                 series.zero_after_last_reading(MOTOR_HOLD_S);
             }
             signals.push(Signal {

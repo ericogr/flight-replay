@@ -51,7 +51,12 @@ that is for the ear.
   `off_threshold_pct` (2 %) the motor is stopped: the tone spins down and only the wind sounds. The current never
   becomes volume by itself, because it does not fall to zero (the system draws about 2.5 A).
 - A reading that is not legible in a frame (blinking, another screen) is repeated from the previous frame, and
-  back-filled at the start.
+  back-filled at the start. The throttle is the exception at the start: before its first reading the motor is off
+  (the splash screen, the time before the element is drawn), so the throttle is 0 there and is not copied back from
+  the first reading.
+- Where INAV shows `STOP`, `IDLE` or `DARM` in place of the throttle percentage, the throttle is 0. It is a reading,
+  not a gap, so it is not carried over from the frame before. A negative percentage (the stick just under the end of
+  its range) is read as shown and counts as 0 for the sound.
 - After the last throttle reading the throttle is held for 2 s, then the motor stops: once the OSD no longer shows
   the throttle, the motor is off (after disarming, at the end of a recording).
 - The oscillator uses a **phase accumulator**, never `sin(2 pi f t)`, so there are no clicks when the frequency

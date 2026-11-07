@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use flight_replay_core::osd::OsdFile;
-use flight_replay_core::telemetry::catalog::{CATALOG, Field};
+use flight_replay_core::telemetry::catalog::{CATALOG, Field, KEY_THROTTLE_AUTO, KEY_THROTTLE_PCT};
 use flight_replay_core::telemetry::decoder::{
     Decoder, Options, Sample, Value, detect_flight_modes, detect_message_row,
 };
@@ -37,6 +37,19 @@ fn cell(sample: &Sample, field: &Field) -> String {
         Some(Value::Text(text)) => text.clone(),
         Some(Value::Num(value)) => format_number(*value, field.decimals),
     }
+}
+
+/// The one deliberate difference from the Go decoder. Where INAV shows STOP, IDLE or DARM, or a negative percentage,
+/// in place of the throttle, the Go decoder reads nothing, and this one reads 0 (or the negative percentage, with 0
+/// for "manual" in the auto-throttle column). See docs/telemetry/inav.md. It only applies where Go reads nothing,
+/// so a throttle that Go reads and this one reads differently is still a mismatch.
+fn is_known_difference(key: &str, expected: &str, got: &str) -> bool {
+    expected.is_empty()
+        && match key {
+            KEY_THROTTLE_PCT => got == "0" || got.starts_with('-'),
+            KEY_THROTTLE_AUTO => got == "0",
+            _ => false,
+        }
 }
 
 /// A small CSV reader: `;` separated, with double-quoted fields.
@@ -115,6 +128,7 @@ fn the_decoder_reproduces_the_reference_csv() {
     let mut per_column: std::collections::BTreeMap<String, usize> =
         std::collections::BTreeMap::new();
     let mut compared = 0usize;
+    let mut known_differences = 0usize;
     for (frame_index, frame) in osd.frames.iter().enumerate() {
         let (sample, _) = decoder.decode(&osd, frame);
         assert_eq!(
@@ -131,7 +145,9 @@ fn the_decoder_reproduces_the_reference_csv() {
             };
             let got = cell(&sample, field);
             compared += usize::from(!expected.is_empty());
-            if got != expected {
+            if is_known_difference(&field.key, &expected, &got) {
+                known_differences += 1;
+            } else if got != expected {
                 *per_column.entry(field.key.to_string()).or_default() += 1;
                 if mismatches.len() < 12 {
                     mismatches.push((field.key.to_string(), frame_index, expected, got));
@@ -140,7 +156,7 @@ fn the_decoder_reproduces_the_reference_csv() {
         }
     }
     eprintln!(
-        "decoded {} frames in {:?}; {compared} readings compared",
+        "decoded {} frames in {:?}; {compared} readings compared, {known_differences} throttle readings that Go does not make",
         osd.frames.len(),
         started.elapsed()
     );

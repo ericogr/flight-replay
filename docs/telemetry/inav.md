@@ -22,6 +22,13 @@ The statistics screen shown after disarming is not read at all. The splash scree
 rules, but not by the generic pass. A field that is not readable in a frame (blinking, no GPS) is absent from the
 sample. It is never zero.
 
+The throttle is the one field that has a reading where it shows no number. After its icon INAV writes the percentage,
+or one of the words `STOP` (armed, and the throttle it shows is at or below zero), `IDLE` (the same, at exactly zero
+with the motor-stop feature off, so the motor idles) or `DARM` (disarmed); see `osdFormatThrottlePosition` in the
+INAV source. The decoder reads each of these words as a throttle of 0, since that is what they say. The word also
+replaces the auto-throttle glyphs, so who was in control cannot be told and `osd_throttle_auto` is absent for those
+frames. A negative percentage (` -1`) is read as shown.
+
 ## Signals used by the sound
 
 | Role | Column | OSD element to turn on (INAV Configurator, OSD tab) |
@@ -49,6 +56,11 @@ asked for when there is no ground speed either.
 
 ## Differences from the Go code
 
+- The throttle reads `STOP`, `IDLE` and `DARM` as 0, and a negative percentage as shown. The Go decoder reads
+  nothing for those frames, so the sound held the last throttle through them (and, before the first reading, the
+  first one). On a recording that starts with `STOP` on the screen the motor sounded at the first percentage seen,
+  while it was stopped. `crates/core/tests/telemetry_reference.rs` allows this one difference, and only where Go reads
+  nothing.
 - `\b` and `\B` are written `(?-u:\b)` and `(?-u:\B)`. Go's are ASCII-only. Rust's are Unicode by default, and the
   accented-letter codes of the font would count as word characters.
 - The glyph prefilter of the Go decoder (which skips a rule when the row has none of its glyphs) is not ported. The
