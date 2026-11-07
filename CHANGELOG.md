@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-07
+
+First release. The archives are for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon), and are not signed.
+
 ### Added
 
 - The wizard: seven steps from the video to the render, with the settings saved between runs, a frame preview, a

@@ -37,21 +37,88 @@ for a folder.
 
 ## Install
 
-Download the archive of your system from the releases page, with `SHA256SUMS` to check it.
+Download the archive of your system from the [releases page](https://github.com/ericogr/flight-replay/releases).
+Each release (`X.Y.Z` is the version) has:
 
-- **Linux:** unpack, then `./install.sh` (installs in `~/.local`, or in the prefix you give).
-- **Windows:** unpack the zip and run `flight-replay.exe`.
-- **macOS:** unpack the zip and open `Flight Replay.app`.
+| System | File |
+|---|---|
+| Linux, 64-bit Intel/AMD | `flight-replay-X.Y.Z-linux-x86_64.tar.gz` |
+| Windows, 64-bit Intel/AMD | `flight-replay-X.Y.Z-windows-x86_64.zip` |
+| macOS, Apple Silicon (M1 and later) | `flight-replay-X.Y.Z-macos-aarch64.zip` |
+| Source code (GPL-3.0) | `flight-replay-X.Y.Z-source.tar.gz` |
+| Checksums of all of the above | `SHA256SUMS` |
 
-The releases are not signed, so Windows and macOS warn the first time: see [docs/build.md](docs/build.md#releases).
+There is no release for Windows or Linux on ARM, nor for Intel Macs: [build from source](docs/build.md) there.
 
-Flight Replay needs **FFmpeg 6 or newer** (`ffmpeg` and `ffprobe`), which it does not include:
+**1. Check the download** (optional). Put `SHA256SUMS` in the same folder as the archive.
 
 ```sh
-sudo apt install ffmpeg      # Debian, Ubuntu (dnf, pacman and the others work too)
-brew install ffmpeg          # macOS
+# Linux
+sha256sum --check --ignore-missing SHA256SUMS
+# macOS
+grep macos SHA256SUMS | shasum -a 256 --check
+```
+
+```powershell
+# Windows (PowerShell): the hash must be the one on the "windows" line of SHA256SUMS
+Get-FileHash .\flight-replay-X.Y.Z-windows-x86_64.zip -Algorithm SHA256
+```
+
+**2. Install FFmpeg 6 or newer** (`ffmpeg` and `ffprobe`). Flight Replay needs it and does not include it
+([why](docs/build.md#ffmpeg-is-not-bundled)).
+
+```sh
+sudo apt install ffmpeg      # Linux: Debian, Ubuntu (dnf, pacman and the others work too)
+brew install ffmpeg          # macOS (https://brew.sh)
+```
+
+```powershell
 winget install Gyan.FFmpeg   # Windows
 ```
+
+**3. Install Flight Replay.** The releases are not signed, so Windows and macOS warn the first time you open the
+program. This is expected; the steps below get past it.
+
+### Linux
+
+```sh
+tar -xzf flight-replay-X.Y.Z-linux-x86_64.tar.gz
+cd flight-replay-X.Y.Z-linux-x86_64
+./install.sh                 # installs in ~/.local; pass another prefix to change it, e.g. ./install.sh /usr/local
+```
+
+This puts `flight-replay` in `~/.local/bin` (add that folder to your `PATH` if the shell does not find it), and the
+entry and icons in the application menu. To remove it: `./install.sh --uninstall`. You can also run `./flight-replay`
+straight from the unpacked folder, without installing.
+
+The window needs a Vulkan or OpenGL driver, `xdg-desktop-portal` with a back end for your desktop (it opens the file
+dialogs), and ALSA or PipeWire for the sound preview. A normal desktop has all of them.
+
+### Windows
+
+1. Unzip `flight-replay-X.Y.Z-windows-x86_64.zip` (right-click, "Extract All…") to a folder of your choice.
+2. Open `flight-replay.exe`.
+3. SmartScreen says "Windows protected your PC" because the publisher is unknown. Choose **More info**, then
+   **Run anyway**. It asks only the first time.
+
+To remove it, delete the folder. The settings are kept apart, in your user profile.
+
+### macOS
+
+Apple Silicon only (M1 and later).
+
+1. Unzip `flight-replay-X.Y.Z-macos-aarch64.zip` (double-click it) and move `Flight Replay.app` to `Applications`.
+2. Gatekeeper refuses an application that is not signed. The first time, **right-click** `Flight Replay.app`, choose
+   **Open**, then **Open** again. Or remove the quarantine mark once from the terminal:
+
+   ```sh
+   xattr -dr com.apple.quarantine "/Applications/Flight Replay.app"
+   ```
+
+To remove it, drag `Flight Replay.app` to the Bin.
+
+When FFmpeg is installed in a place the program does not look in, choose its folder on the welcome step. The search
+order is in [docs/build.md](docs/build.md).
 
 ## Use
 
