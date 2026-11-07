@@ -10,7 +10,20 @@
 use std::path::{Path, PathBuf};
 
 use flight_replay_core::font::{CharacterSize, FontSheet, ScaledFont};
+use flight_replay_core::timeline::{ScaleMode, SyncOptions, Timeline};
 use image::{Rgba, RgbaImage};
+
+/// A minute of video that is a minute of telemetry, with no offset: the telemetry time is the video time.
+pub fn straight() -> Timeline {
+    Timeline::new(
+        SyncOptions {
+            scale: ScaleMode::Off,
+            offset_s: 0.0,
+        },
+        60.0,
+        60.0,
+    )
+}
 
 /// A file of the fixtures folder of the repository.
 pub fn fixture(name: &str) -> PathBuf {

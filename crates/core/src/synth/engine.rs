@@ -10,15 +10,17 @@
 //! whine; the upper harmonics grow with the load. The volume follows the current above its idle baseline, gated by
 //! "motor running" (throttle above the off threshold), so gliding is silent except for the wind. The propeller noise
 //! is band-pass noise that follows the load, modulated at the blade-pass frequency. The wind is low-pass noise that
-//! follows the air speed. It is the only sound while gliding.
+//! follows the air speed. It is the only sound while gliding. An aircraft with several motors, a drone, has a tone
+//! for each (see [`super::rotors`]).
 //!
 //! Rendering is block based and fully deterministic: the control values advance on a fixed grid of absolute sample
 //! indices, so the output does not depend on how the caller splits it into blocks.
 
-use std::f64::consts::{PI, SQRT_2, TAU};
+use std::f64::consts::TAU;
 
-use super::dsp::{Rng, Smoother, Svf, SvfCoef, clamp, clamp01, lerp, soft_clip, wrap_phase};
-use super::settings::{SoundSettings, Stopped};
+use super::dsp::{Rng, Smoother, Svf, SvfCoef, clamp, clamp01, lerp, soft_clip, stream_seed};
+use super::rotors::RotorBank;
+use super::settings::{MAX_ROTORS, SoundSettings, Stopped};
 use crate::telemetry::{Cursor, Series, at_or};
 use crate::timeline::Timeline;
 
@@ -35,7 +37,16 @@ const P_PROP: usize = 4;
 const P_WIND: usize = 5;
 const P_BAL_L: usize = 6;
 const P_BAL_R: usize = 7;
-const N_PARAMS: usize = 8;
+const P_RATIO: usize = 8; // speed of each rotor against the common speed, one parameter per rotor
+const N_PARAMS: usize = P_RATIO + MAX_ROTORS;
+
+/// The streams of noise of the propeller and the wind: the first of each, and the next one for the second channel
+/// (see [`stream_seed`]).
+const PROP_NOISE_STREAM: u64 = 0;
+const WIND_NOISE_STREAM: u64 = 4;
+
+/// The time constant of the smoothing of the roll angle, which pans the wind, in seconds.
+const ROLL_SMOOTHING_S: f64 = 0.25;
 
 /// The telemetry series that drive the sound. The throttle is required.
 #[derive(Debug, Clone, Copy)]
@@ -56,6 +67,8 @@ pub struct Controls<'a> {
     pub roll: Option<&'a Series>,
     /// Optional load variation.
     pub pitch: Option<&'a Series>,
+    /// Optional: 1 where INAV shows `IDLE` in place of the throttle. Read when the motor keeps spinning at idle.
+    pub motor_idle: Option<&'a Series>,
 }
 
 /// What has been rendered so far.
@@ -102,6 +115,7 @@ pub struct Engine<'a> {
     gforce: Option<Cursor<'a>>,
     roll: Option<Cursor<'a>>,
     pitch: Option<Cursor<'a>>,
+    motor_idle: Option<Cursor<'a>>,
     has_current: bool,
 
     // control state
@@ -120,12 +134,7 @@ pub struct Engine<'a> {
     wind_coef: SvfCoef,
 
     // audio state
-    phase: f64,
-    whine_phase: f64,
-    harmonics: Vec<f64>,
-    cos_offset: Vec<f64>,
-    sin_offset: Vec<f64>,
-    pan: [Vec<f64>; 2],
+    rotors: RotorBank,
     prop_noise: [Rng; 2],
     wind_noise: [Rng; 2],
     prop_filter: [Svf; 2],
@@ -150,6 +159,7 @@ struct Raw {
     gforce: f64,
     roll: f64,
     pitch: f64,
+    motor_idle: f64,
 }
 
 impl<'a> Engine<'a> {
@@ -173,38 +183,15 @@ impl<'a> Engine<'a> {
         let gate_smoother = Smoother::new(sm.gate_attack_s, sm.gate_release_s, dt);
         let cell_smoother = Smoother::new(sm.battery_s, sm.battery_s, dt);
         let gforce_smoother = Smoother::new(sm.current_attack_s, sm.current_release_s, dt);
-        let roll_smoother = Smoother::new(0.25, 0.25, dt);
+        let roll_smoother = Smoother::new(ROLL_SMOOTHING_S, ROLL_SMOOTHING_S, dt);
 
-        // Tone: fixed, deterministic phase offsets decorrelate the harmonics so the summed waveform has a low crest
-        // factor (no "pulse train" peaks).
-        let harmonics = settings.tone.harmonics.clone();
-        let (cos_offset, sin_offset): (Vec<f64>, Vec<f64>) = (0..harmonics.len())
-            .map(|k| {
-                let d = TAU * ((k as f64 * 0.618_033_988_7) % 1.0);
-                (d.cos(), d.sin())
-            })
-            .unzip();
-
-        // Stereo: the fundamental stays centred; the higher harmonics alternate sides with constant-power panning,
-        // scaled by the stereo width.
-        let mut pan: [Vec<f64>; 2] = [
-            Vec::with_capacity(harmonics.len()),
-            Vec::with_capacity(harmonics.len()),
-        ];
-        for k in 0..harmonics.len() {
-            let mut offset = 0.0;
-            if channels == 2 && k > 0 {
-                let side = if k % 2 == 1 { -1.0 } else { 1.0 };
-                offset = side * settings.tone.stereo_width * (k as f64 / 3.0).min(1.0);
-            }
-            let theta = (offset + 1.0) * PI / 4.0;
-            pan[0].push(SQRT_2 * theta.cos());
-            pan[1].push(SQRT_2 * theta.sin());
-        }
+        let rotors = RotorBank::new(&settings, dt);
 
         let seed = settings.audio.seed;
-        let prop_noise = [Rng::new(seed * 8), Rng::new(seed * 8 + 1)];
-        let wind_noise = [Rng::new(seed * 8 + 4), Rng::new(seed * 8 + 5)];
+        let noise = |first: u64| {
+            std::array::from_fn(|channel| Rng::new(stream_seed(seed, first + channel as u64)))
+        };
+        let (prop_noise, wind_noise) = (noise(PROP_NOISE_STREAM), noise(WIND_NOISE_STREAM));
         let high_pass_coef = 1.0 - (-TAU * 40.0 / sample_rate).exp(); // 40 Hz high-pass on the wind
         let master_gain = 10f64.powf(settings.audio.master_gain_db / 20.0);
 
@@ -222,6 +209,7 @@ impl<'a> Engine<'a> {
             gforce: controls.gforce.map(Series::cursor),
             roll: controls.roll.map(Series::cursor),
             pitch: controls.pitch.map(Series::cursor),
+            motor_idle: controls.motor_idle.map(Series::cursor),
             has_current: controls.current.is_some(),
             started: false,
             throttle_smoother,
@@ -236,12 +224,7 @@ impl<'a> Engine<'a> {
             target: [0.0; N_PARAMS],
             prop_coef: SvfCoef::default(),
             wind_coef: SvfCoef::default(),
-            phase: 0.0,
-            whine_phase: 0.0,
-            harmonics,
-            cos_offset,
-            sin_offset,
-            pan,
+            rotors,
             prop_noise,
             wind_noise,
             prop_filter: [Svf::default(); 2],
@@ -291,41 +274,29 @@ impl<'a> Engine<'a> {
     pub fn render(&mut self, dst: &mut [f64]) {
         let channels = self.channels;
         let frames = dst.len() / channels;
-        let harmonic_count = self.harmonics.len();
-        let blade = clamp01(self.settings.prop_noise.blade_mod_depth);
+        let blade_depth = clamp01(self.settings.prop_noise.blade_mod_depth);
         let whine_gain = self.settings.tone.whine_gain;
+        let active = self.active_params();
 
         for i in 0..frames {
             if self.position % CONTROL_INTERVAL == 0 {
                 self.tick();
             }
-            for j in 0..N_PARAMS {
+            for j in 0..active {
                 self.current_params[j] += self.step[j];
             }
 
-            self.phase = wrap_phase(self.phase + self.current_params[P_INC]);
-            self.whine_phase = wrap_phase(self.whine_phase + self.current_params[P_WHINE_INC]);
-            let (s1, c1) = self.phase.sin_cos();
-
-            // The harmonic series by the angle-addition recurrence: one sin_cos per sample instead of one sin per
-            // harmonic.
-            let mut tone = [0.0f64; 2];
-            let (mut sk, mut ck) = (s1, c1);
-            let mut tilt_power = 1.0;
-            for k in 0..harmonic_count {
-                let v = sk * self.cos_offset[k] + ck * self.sin_offset[k];
-                let w = self.harmonics[k] * tilt_power * v;
-                tone[0] += w * self.pan[0][k];
-                if channels == 2 {
-                    tone[1] += w * self.pan[1][k];
-                }
-                tilt_power *= self.current_params[P_TILT];
-                (sk, ck) = (sk * c1 + ck * s1, ck * c1 - sk * s1);
-            }
-            let whine = self.whine_phase.sin() * whine_gain;
+            let voice = self.rotors.voice(
+                self.current_params[P_INC],
+                self.current_params[P_WHINE_INC],
+                self.current_params[P_TILT],
+                &self.current_params[P_RATIO..active],
+            );
+            let whine = voice.whine * whine_gain;
 
             let motor = self.current_params[P_MOTOR];
-            let prop_amp = self.current_params[P_PROP] * (1.0 + blade * s1);
+            // the blades of all the motors beat the air: the noise follows their mean
+            let prop_amp = self.current_params[P_PROP] * (1.0 + blade_depth * voice.blade);
             let wind_amp = self.current_params[P_WIND];
 
             for ch in 0..channels {
@@ -341,7 +312,7 @@ impl<'a> Engine<'a> {
                     self.current_params[P_BAL_L]
                 };
                 let mut y =
-                    motor * (tone[ch] + whine) + prop_amp * band + wind_amp * balance * wind;
+                    motor * (voice.tone[ch] + whine) + prop_amp * band + wind_amp * balance * wind;
                 y *= self.master_gain;
 
                 if y.abs() > 1.0 {
@@ -373,9 +344,14 @@ impl<'a> Engine<'a> {
         let raw = self.sample(t);
         self.advance(raw);
         self.compute_targets(raw);
-        for j in 0..N_PARAMS {
+        for j in 0..self.active_params() {
             self.step[j] = (self.target[j] - self.current_params[j]) / CONTROL_INTERVAL as f64;
         }
+    }
+
+    /// How many of the ramping parameters are in use: the fixed ones, and a speed for each motor.
+    fn active_params(&self) -> usize {
+        P_RATIO + self.rotors.count()
     }
 
     fn telemetry_at(&self, video_time: f64) -> f64 {
@@ -393,6 +369,7 @@ impl<'a> Engine<'a> {
         self.cell_smoother.y = raw.cell;
         self.gforce_smoother.y = raw.gforce;
         self.roll_smoother.y = raw.roll;
+        self.rotors.start(raw.roll, raw.pitch);
         self.gate_smoother.y = self.gate_target(raw);
         self.compute_targets(raw);
         self.current_params = self.target;
@@ -410,6 +387,7 @@ impl<'a> Engine<'a> {
             gforce: at_or(self.gforce.as_mut(), t, 1.0), // 1 g is level flight
             roll: at_or(self.roll.as_mut(), t, 0.0),
             pitch: at_or(self.pitch.as_mut(), t, 0.0),
+            motor_idle: at_or(self.motor_idle.as_mut(), t, 0.0),
         }
     }
 
@@ -422,19 +400,21 @@ impl<'a> Engine<'a> {
         self.roll_smoother.step(raw.roll);
         let gate = self.gate_target(raw);
         self.gate_smoother.step(gate);
+        self.rotors.advance(raw.roll, raw.pitch);
     }
 
-    /// Decides whether the motor is sounding: running above the off threshold; otherwise silent, or a quiet hum on
-    /// the ground in `idle` mode.
+    /// Decides whether the motor is sounding: running above the off threshold; otherwise silent, a quiet hum on the
+    /// ground in `idle` mode, or spinning at its idle speed where INAV says the motor idles in `spinning` mode.
     fn gate_target(&self, raw: Raw) -> f64 {
         let m = &self.settings.motor;
         if raw.throttle > m.off_threshold_pct {
             return 1.0;
         }
-        if m.stopped == Stopped::Idle && raw.speed <= m.stop_speed_kmh {
-            return m.idle_gain;
+        match m.stopped {
+            Stopped::Idle if raw.speed <= m.stop_speed_kmh => m.idle_gain,
+            Stopped::Spinning if raw.motor_idle > 0.5 => 1.0,
+            _ => 0.0,
         }
-        0.0
     }
 
     fn compute_targets(&mut self, raw: Raw) {
@@ -497,6 +477,9 @@ impl<'a> Engine<'a> {
         }
         self.target[P_BAL_L] = 1.0 - balance;
         self.target[P_BAL_R] = 1.0 + balance;
+
+        let active = self.active_params();
+        self.rotors.ratios(&mut self.target[P_RATIO..active]);
     }
 
     /// Lowers the RPM as the (sag-corrected) cell voltage drops.

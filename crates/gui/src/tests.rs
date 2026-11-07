@@ -15,7 +15,9 @@ use std::sync::Arc;
 use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools, probe};
 use flight_replay_core::font::{BundledFont, CharacterSize};
 use flight_replay_core::osd::Coverage;
-use flight_replay_core::synth::{MOTOR_PRESETS, SoundSettings, motor_preset_in_use};
+use flight_replay_core::synth::{
+    AircraftKind, MOTOR_PRESETS, SoundSettings, Stopped, motor_preset_in_use,
+};
 use iced::Task;
 use iced::futures::StreamExt;
 use iced_runtime::Action;
@@ -178,6 +180,18 @@ fn write_font(path: &Path) {
         }
     }
     sheet.save(path).expect("the font file");
+}
+
+/// A harness at the sound step. That step is refused until a video and a font are loaded, so it drops them first.
+fn at_the_sound_step() -> Option<Harness> {
+    let mut app = Harness::start()?;
+    let font = app.path("font.png");
+    write_font(&font);
+    app.send(Message::FileDropped(fixture("clip-3s.mp4")));
+    app.send(Message::FileDropped(font));
+    app.send(Message::GoTo(Step::Sound));
+    assert_eq!(app.app.step, Step::Sound);
+    Some(app)
 }
 
 #[test]
@@ -377,15 +391,9 @@ fn the_ffmpeg_command_is_shown_only_when_the_user_asks_for_it() {
 
 #[test]
 fn a_motor_preset_changes_the_sound_and_every_value_can_still_be_changed() {
-    let Some(mut app) = Harness::start() else {
+    let Some(mut app) = at_the_sound_step() else {
         return;
     };
-    let font = app.path("font.png");
-    write_font(&font);
-    app.send(Message::FileDropped(fixture("clip-3s.mp4")));
-    app.send(Message::FileDropped(font));
-    app.send(Message::GoTo(Step::Sound));
-    assert_eq!(app.app.step, Step::Sound);
     assert_eq!(motor_preset_in_use(&app.app.settings.sound), Some(0));
     assert!(
         app.shows(MOTOR_PRESETS[0].description),
@@ -421,6 +429,63 @@ fn a_motor_preset_changes_the_sound_and_every_value_can_still_be_changed() {
 
     app.send(Message::Sound(SoundEdit::MotorPreset(0)));
     assert_eq!(motor_preset_in_use(&app.app.settings.sound), Some(0));
+}
+
+#[test]
+fn choosing_a_drone_sets_what_belongs_to_a_drone_and_choosing_a_fixed_wing_brings_the_default_back()
+{
+    let Some(mut app) = at_the_sound_step() else {
+        return;
+    };
+    assert_eq!(app.app.settings.sound.aircraft, AircraftKind::FixedWing);
+    assert!(
+        !app.shows("Several motors"),
+        "a fixed wing has one motor, so there is nothing to set about several"
+    );
+
+    // what belongs to the recording is kept
+    app.send(Message::Sound(SoundEdit::SampleRate(44_100)));
+    app.send(Message::Sound(SoundEdit::Aircraft(
+        AircraftKind::Multirotor,
+    )));
+    let sound = &app.app.settings.sound;
+    let (first, _) = AircraftKind::Multirotor.presets().next().unwrap();
+    assert_eq!(sound.aircraft, AircraftKind::Multirotor);
+    assert_eq!(sound.rotors.count, 4);
+    assert_eq!(sound.motor.stopped, Stopped::Spinning);
+    assert_eq!(motor_preset_in_use(sound), Some(first));
+    assert_eq!(sound.audio.sample_rate, 44_100, "the format is kept");
+    assert!(
+        app.shows(MOTOR_PRESETS[first].description),
+        "the first sound of the drones is described"
+    );
+    assert!(app.shows("Several motors"), "the section about the motors");
+    app.snapshot("5-sound-drone");
+    let saved = std::fs::read_to_string(app.path("settings.toml")).expect("the settings are saved");
+    assert!(saved.contains("aircraft = \"multirotor\""), "{saved}");
+
+    // a value changed by hand is not thrown away by choosing the same kind again
+    app.send(Message::Sound(SoundEdit::Param(Param::FMaxHz, 1500.0)));
+    app.send(Message::Sound(SoundEdit::Aircraft(
+        AircraftKind::Multirotor,
+    )));
+    assert!((app.app.settings.sound.motor.f_max_hz - 1500.0).abs() < 1e-9);
+    assert_eq!(motor_preset_in_use(&app.app.settings.sound), None);
+
+    // another sound of the drones, and a number of motors
+    let (second, _) = AircraftKind::Multirotor.presets().nth(1).unwrap();
+    app.send(Message::Sound(SoundEdit::MotorPreset(second)));
+    assert_eq!(motor_preset_in_use(&app.app.settings.sound), Some(second));
+    app.send(Message::Sound(SoundEdit::Param(Param::Rotors, 6.0)));
+    assert_eq!(app.app.settings.sound.rotors.count, 6);
+    assert_eq!(app.app.settings.sound.validate(), Ok(()));
+
+    // back to a fixed wing: the default sound, with the format the user chose
+    app.send(Message::Sound(SoundEdit::Aircraft(AircraftKind::FixedWing)));
+    let mut expected = SoundSettings::default();
+    expected.audio.sample_rate = 44_100;
+    assert_eq!(app.app.settings.sound, expected);
+    assert!(!app.shows("Several motors"));
 }
 
 /// A copy of the clip in the folder of the harness, with the files that go with it that `with` names (`osd`, `srt`).

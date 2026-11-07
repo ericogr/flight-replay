@@ -6,14 +6,16 @@
 mod dsp;
 mod engine;
 mod presets;
+mod rotors;
 mod settings;
 mod signals;
 
 pub use engine::{Controls, Engine, EngineError, RenderStats, frames_for};
 pub use presets::{MOTOR_PRESETS, MotorPreset, motor_preset_in_use};
 pub use settings::{
-    AudioSettings, ColumnSettings, GForceSettings, LoudnessSettings, MotorSettings,
-    PropNoiseSettings, SmoothingSettings, SoundSettings, Stopped, ToneSettings, WindSettings,
+    AircraftKind, AudioSettings, ColumnSettings, GForceSettings, LoudnessSettings, MAX_ROTORS,
+    MotorSettings, PropNoiseSettings, RotorSettings, SmoothingSettings, SoundSettings, Stopped,
+    ToneSettings, WindSettings,
 };
 pub use signals::{MIN_COVERAGE_PCT, MOTOR_HOLD_S, Role, Signal, SignalError, SignalSet};
 

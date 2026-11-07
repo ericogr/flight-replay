@@ -30,6 +30,11 @@ INAV source. The decoder reads each of these words as a throttle of 0, since tha
 replaces the auto-throttle glyphs, so who was in control cannot be told and `osd_throttle_auto` is absent for those
 frames. A negative percentage (` -1`) is read as shown.
 
+Because the throttle alone cannot tell `IDLE` from `STOP` and `DARM`, whenever the throttle is read the decoder also
+writes `osd_motor_idle`: 1 for `IDLE`, 0 for anything else. It matters for a drone, whose motors spin at their idle
+speed there, and the sound reads it only then (`motor.stopped = "spinning"`). The Go decoder has no such column, so
+`crates/core/tests/telemetry_reference.rs` does not compare it.
+
 ## Signals used by the sound
 
 | Role | Column | OSD element to turn on (INAV Configurator, OSD tab) |
@@ -42,6 +47,7 @@ frames. A negative percentage (` -1`) is read as shown.
 | roll | `osd_roll_deg` | Roll Angle |
 | pitch | `osd_pitch_deg` | Pitch Angle |
 | G-force | `osd_gforce` | g force |
+| motor idling (a drone only) | `osd_motor_idle` | Throttle Position |
 
 The last column is what the sound step tells the user when the recording lacks a signal (`Role::osd_element`, in
 `synth/signals.rs`). Without the throttle there is no sound. Without any of the others the sound is made with less to

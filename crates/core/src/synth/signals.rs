@@ -8,7 +8,7 @@
 use std::fmt::Write as _;
 
 use super::engine::Controls;
-use super::settings::SoundSettings;
+use super::settings::{SoundSettings, Stopped};
 use crate::telemetry::{Series, Table, format_value};
 
 /// The roles telemetry plays in the sound model.
@@ -30,6 +30,8 @@ pub enum Role {
     Roll,
     /// Slight load variation.
     Pitch,
+    /// Whether INAV shows `IDLE` in place of the throttle. Read only when the motor keeps spinning at idle.
+    MotorIdle,
 }
 
 impl Role {
@@ -45,6 +47,7 @@ impl Role {
             Self::GForce => "gforce",
             Self::Roll => "roll",
             Self::Pitch => "pitch",
+            Self::MotorIdle => "motor_idle",
         }
     }
 
@@ -53,7 +56,7 @@ impl Role {
     #[must_use]
     pub fn osd_element(self) -> &'static str {
         match self {
-            Self::Throttle => "Throttle Position",
+            Self::Throttle | Self::MotorIdle => "Throttle Position",
             Self::Current => "Current Draw",
             Self::AirSpeed => "Air Speed",
             Self::GpsSpeed => "Ground Speed",
@@ -147,12 +150,18 @@ impl SignalSet {
             (Role::GForce, &c.gforce),
             (Role::Roll, &c.roll),
             (Role::Pitch, &c.pitch),
+            (Role::MotorIdle, &c.motor_idle),
         ] {
             if column.is_empty() {
                 continue; // feature turned off in the settings
             }
+            // Only a motor that spins at idle needs to tell IDLE from STOP and DARM.
+            if role == Role::MotorIdle && settings.motor.stopped != Stopped::Spinning {
+                continue;
+            }
             let mut series = table.series(column).ok(); // an error means no readings
-            if role == Role::Throttle
+            // The idle flag comes with the throttle, so it ends and starts with it.
+            if matches!(role, Role::Throttle | Role::MotorIdle)
                 && let Some(series) = series.as_mut()
             {
                 series.zero_before_first_reading();
@@ -209,6 +218,7 @@ impl SignalSet {
             gforce: self.series(Role::GForce),
             roll: self.series(Role::Roll),
             pitch: self.series(Role::Pitch),
+            motor_idle: self.series(Role::MotorIdle),
         }
     }
 
@@ -257,6 +267,10 @@ impl SignalSet {
     fn warn_sparse(&mut self) {
         let mut messages = Vec::new();
         for signal in &self.signals {
+            // The idle flag is read in the frames that show the throttle, which has its own warning.
+            if signal.role == Role::MotorIdle {
+                continue;
+            }
             let Some(series) = &signal.series else {
                 continue;
             };
@@ -322,22 +336,57 @@ impl SignalSet {
             }
             self.note_lost(Role::CellVoltage, "per-cell battery voltage", &effect);
         }
-        if settings.wind.roll_balance != 0.0 && settings.audio.channels == 2 {
-            self.note_lost(
-                Role::Roll,
-                "roll",
-                "the wind will not pan between left and right with the bank angle",
-            );
-        }
-        if settings.loudness.pitch_gain != 0.0 {
-            self.note_lost(
-                Role::Pitch,
-                "pitch",
-                "the load will not follow the climb angle",
-            );
-        }
+        let rotors_follow_attitude = settings.rotors.count > 1 && settings.rotors.attitude != 0.0;
+        self.note_lost_effects(
+            Role::Roll,
+            "roll",
+            &[
+                (
+                    settings.wind.roll_balance != 0.0 && settings.audio.channels == 2,
+                    "the wind will not pan between left and right with the bank angle",
+                ),
+                (
+                    rotors_follow_attitude,
+                    "the motors will not change speed with the roll",
+                ),
+            ],
+        );
+        self.note_lost_effects(
+            Role::Pitch,
+            "pitch",
+            &[
+                (
+                    settings.loudness.pitch_gain != 0.0,
+                    "the load will not follow the climb angle",
+                ),
+                (
+                    rotors_follow_attitude,
+                    "the motors will not change speed with the pitch",
+                ),
+            ],
+        );
+        // The signal is only looked for when the motor idles, and the throttle element gives it, so there is nothing
+        // more to turn on.
+        self.warn_lost(
+            Role::MotorIdle,
+            "idle",
+            "a motor idling at zero throttle will be silent",
+        );
         if settings.gforce.gain != 0.0 {
             self.note_lost(Role::GForce, "G-force", "gforce.gain will have no effect");
+        }
+    }
+
+    /// Like [`Self::note_lost`] for a signal that several features use: the effects of the features that are on, in
+    /// one message, and nothing if none is.
+    fn note_lost_effects(&mut self, role: Role, what: &str, effects: &[(bool, &str)]) {
+        let on: Vec<&str> = effects
+            .iter()
+            .filter(|(on, _)| *on)
+            .map(|(_, effect)| *effect)
+            .collect();
+        if !on.is_empty() {
+            self.note_lost(role, what, &on.join(", and "));
         }
     }
 
@@ -366,6 +415,7 @@ impl SignalSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::synth::AircraftKind;
     use crate::telemetry::Row;
 
     /// A table of ten rows with only the columns named, all with a reading in every row.
@@ -445,5 +495,58 @@ mod tests {
         let set =
             SignalSet::collect(&table(&["osd_throttle_pct"]), &settings, "a.osd", 10).unwrap();
         assert!(!set.turn_on.contains(&"Current Draw"), "{:?}", set.turn_on);
+    }
+
+    #[test]
+    fn the_idle_flag_is_read_only_for_a_motor_that_spins_at_idle() {
+        let columns = ["osd_throttle_pct", "osd_motor_idle"];
+        let plane = collect(&columns).unwrap();
+        assert!(plane.controls().motor_idle.is_none());
+        assert!(
+            !plane.describe().contains("motor_idle"),
+            "{}",
+            plane.describe()
+        );
+
+        let mut settings = SoundSettings::default();
+        AircraftKind::Multirotor.apply(&mut settings);
+        let drone = SignalSet::collect(&table(&columns), &settings, "a.osd", 10).unwrap();
+        assert!(drone.controls().motor_idle.is_some());
+        assert!(drone.describe().contains("motor_idle"));
+        assert!(
+            !drone.warnings.iter().any(|w| w.contains("idling")),
+            "{:?}",
+            drone.warnings
+        );
+
+        let without =
+            SignalSet::collect(&table(&["osd_throttle_pct"]), &settings, "a.osd", 10).unwrap();
+        assert!(
+            without
+                .warnings
+                .iter()
+                .any(|w| w.contains("idling at zero throttle")),
+            "{:?}",
+            without.warnings
+        );
+    }
+
+    #[test]
+    fn a_drone_without_roll_and_pitch_says_the_motors_lose_their_part_in_them() {
+        let mut settings = SoundSettings::default();
+        AircraftKind::Multirotor.apply(&mut settings);
+        let set =
+            SignalSet::collect(&table(&["osd_throttle_pct"]), &settings, "a.osd", 10).unwrap();
+        for what in ["with the roll", "with the pitch"] {
+            assert!(
+                set.warnings.iter().any(|w| w.contains(what)),
+                "{what}: {:?}",
+                set.warnings
+            );
+        }
+        assert!(set.turn_on.contains(&"Roll Angle") && set.turn_on.contains(&"Pitch Angle"));
+        // a fixed wing is not told about motors
+        let plane = collect(&["osd_throttle_pct"]).unwrap();
+        assert!(!plane.warnings.iter().any(|w| w.contains("the motors")));
     }
 }

@@ -10,6 +10,52 @@
 
 use serde::{Deserialize, Serialize};
 
+/// What kind of aircraft the sound is for. It decides what belongs to the aircraft and not to the motor: whether the
+/// motor can stop in flight, how many motors there are, and the current that gives full volume. What each kind sets,
+/// and the sounds of each kind, are in the `presets` module (`AircraftKind::apply`, `AircraftKind::presets`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AircraftKind {
+    /// One motor and propeller that can stop in flight (gliding). The sound the program started with.
+    #[default]
+    FixedWing,
+    /// A drone: several motors that keep spinning while it is armed.
+    Multirotor,
+}
+
+impl AircraftKind {
+    /// Every kind, in the order they are offered.
+    pub const ALL: [Self; 2] = [Self::FixedWing, Self::Multirotor];
+
+    /// The name shown in the interface.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::FixedWing => "Fixed wing",
+            Self::Multirotor => "Drone",
+        }
+    }
+
+    /// A line about what the choice sets.
+    #[must_use]
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::FixedWing => {
+                "One motor that stops when the throttle is closed, so gliding is silent but for the wind."
+            }
+            Self::Multirotor => {
+                "Several motors that never stop while the drone is armed: they idle at zero throttle and beat against one another."
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for AircraftKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
 /// What the motor does when the throttle is below the off threshold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -18,6 +64,9 @@ pub enum Stopped {
     Silence,
     /// A low hum while the aircraft is on the ground.
     Idle,
+    /// The motor keeps spinning at its idle speed while INAV shows `IDLE` in place of the throttle (armed, motor
+    /// idling), as on a drone. `STOP` and `DARM` are silent.
+    Spinning,
 }
 
 /// Format of the audio.
@@ -65,6 +114,8 @@ pub struct ColumnSettings {
     pub roll: String,
     /// Slight variation of the load.
     pub pitch: String,
+    /// 1 where INAV shows `IDLE` in place of the throttle. Read only when the motor `stopped` setting is `spinning`.
+    pub motor_idle: String,
 }
 
 impl Default for ColumnSettings {
@@ -78,6 +129,7 @@ impl Default for ColumnSettings {
             gforce: "osd_gforce".into(),
             roll: "osd_roll_deg".into(),
             pitch: "osd_pitch_deg".into(),
+            motor_idle: "osd_motor_idle".into(),
         }
     }
 }
@@ -121,6 +173,56 @@ impl Default for MotorSettings {
             battery_gain: 0.5,
             battery_ref_v: 4.0,
             battery_sag_mohm: 0.0,
+        }
+    }
+}
+
+/// The most motors an aircraft can have.
+pub const MAX_ROTORS: usize = 8;
+
+/// The largest fixed difference of speed between the motors, and the largest drift, as a fraction of the speed.
+const MAX_ROTOR_DIFFERENCE: f64 = 0.1;
+
+/// The largest part of the speed that follows the roll or pitch rate, as a fraction for each degree per second.
+const MAX_ROTOR_ATTITUDE: f64 = 0.01;
+
+/// How far a rotor's speed may stray from the common speed, as a ratio: it is kept between `1 - x` and `1 + x`.
+pub const ROTOR_RATIO_SPAN: f64 = 0.2;
+
+/// Several motors: the speed of each one is a little different from the others, which makes the sound rough.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RotorSettings {
+    /// Number of motors (1 to 8). With 1 the sound is that of one motor, as on a fixed wing.
+    pub count: u8,
+    /// A fixed difference of speed between the motors, as a fraction of the speed.
+    pub detune: f64,
+    /// A slow, random drift of the speed of each motor (the controller correcting all the time), as a fraction.
+    pub wander: f64,
+    /// How much a roll or pitch rate speeds up the motors on one side and slows the others, as a fraction of the
+    /// speed for each degree per second.
+    pub attitude: f64,
+}
+
+impl Default for RotorSettings {
+    fn default() -> Self {
+        Self {
+            count: 1,
+            detune: 0.0,
+            wander: 0.0,
+            attitude: 0.0,
+        }
+    }
+}
+
+impl RotorSettings {
+    /// The largest ratio between the speed of a motor and the common speed.
+    #[must_use]
+    pub fn top_ratio(&self) -> f64 {
+        if self.count > 1 {
+            1.0 + ROTOR_RATIO_SPAN
+        } else {
+            1.0
         }
     }
 }
@@ -301,12 +403,17 @@ impl Default for GForceSettings {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SoundSettings {
+    /// What kind of aircraft the sound is for. It comes first because a TOML file has its plain values before its
+    /// tables.
+    pub aircraft: AircraftKind,
     /// Audio format.
     pub audio: AudioSettings,
     /// Telemetry columns.
     pub columns: ColumnSettings,
     /// The motor.
     pub motor: MotorSettings,
+    /// Several motors.
+    pub rotors: RotorSettings,
     /// Inertia.
     pub smoothing: SmoothingSettings,
     /// The tonal part.
@@ -330,6 +437,7 @@ impl SoundSettings {
         let mut problems = Vec::new();
         self.validate_audio(&mut problems);
         self.validate_motor(&mut problems);
+        self.validate_rotors(&mut problems);
         self.validate_smoothing(&mut problems);
         self.validate_tone(&mut problems);
         self.validate_loudness(&mut problems);
@@ -387,6 +495,25 @@ impl SoundSettings {
         }
     }
 
+    fn validate_rotors(&self, problems: &mut Vec<String>) {
+        let r = &self.rotors;
+        if !(1..=MAX_ROTORS).contains(&usize::from(r.count)) {
+            problems.push(format!(
+                "rotors.count={} is outside 1..{MAX_ROTORS}",
+                r.count
+            ));
+        }
+        for (key, value, top) in [
+            ("rotors.detune", r.detune, MAX_ROTOR_DIFFERENCE),
+            ("rotors.wander", r.wander, MAX_ROTOR_DIFFERENCE),
+            ("rotors.attitude", r.attitude, MAX_ROTOR_ATTITUDE),
+        ] {
+            if !(0.0..=top).contains(&value) {
+                problems.push(format!("{key}={value} is outside 0..{top}"));
+            }
+        }
+    }
+
     fn validate_smoothing(&self, problems: &mut Vec<String>) {
         let s = &self.smoothing;
         for (key, value) in [
@@ -407,7 +534,9 @@ impl SoundSettings {
     }
 
     fn validate_tone(&self, problems: &mut Vec<String>) {
-        let (t, f_max, nyquist) = (&self.tone, self.motor.f_max_hz, self.nyquist());
+        // The fastest of several motors runs a little above the common speed.
+        let f_max = self.motor.f_max_hz * self.rotors.top_ratio();
+        let (t, nyquist) = (&self.tone, self.nyquist());
         if t.harmonics.is_empty() || t.harmonics.len() > 16 {
             problems.push("tone.harmonics: give 1 to 16 amplitudes".into());
         }
@@ -525,5 +654,46 @@ mod tests {
         assert_eq!(settings.audio.sample_rate, 48_000);
         let again: SoundSettings = toml::from_str(&toml::to_string(&settings).unwrap()).unwrap();
         assert_eq!(again, settings);
+    }
+
+    #[test]
+    fn a_fixed_wing_with_no_rotor_settings_is_what_files_from_before_read_as() {
+        // a settings.toml from before the kind of aircraft existed
+        let settings: SoundSettings = toml::from_str("[motor]\nf_max_hz = 600.0\n").unwrap();
+        assert_eq!(settings.aircraft, AircraftKind::FixedWing);
+        assert_eq!(settings.rotors, RotorSettings::default());
+        assert_eq!(settings.motor.stopped, Stopped::Silence);
+        assert_eq!(settings.columns.motor_idle, "osd_motor_idle");
+    }
+
+    #[test]
+    fn the_rotors_are_checked() {
+        let mut settings = SoundSettings::default();
+        settings.rotors.count = 0;
+        settings.rotors.detune = 0.5;
+        let problems = settings.validate().unwrap_err();
+        assert!(
+            problems.iter().any(|p| p.contains("rotors.count")),
+            "{problems:?}"
+        );
+        assert!(
+            problems.iter().any(|p| p.contains("rotors.detune")),
+            "{problems:?}"
+        );
+        settings.rotors.count = 9;
+        assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn the_fastest_of_several_motors_counts_for_nyquist() {
+        let mut settings = SoundSettings::default();
+        settings.audio.sample_rate = 44_100;
+        settings.tone.harmonics = vec![1.0; 9];
+        // 9 harmonics of 2,200 Hz is 19,800 Hz, under the limit of 20,947 Hz for a single motor...
+        settings.motor.f_max_hz = 2_200.0;
+        assert_eq!(settings.validate(), Ok(()));
+        // ...but several motors run up to 20 % faster
+        settings.rotors.count = 4;
+        assert!(settings.validate().is_err());
     }
 }

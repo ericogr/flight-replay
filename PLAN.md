@@ -746,7 +746,8 @@ These do not block P0. The defaults are used unless the owner changes them.
     because presets vary what had none: the whine pitch and the sharpness of the propeller noise.
   - The FFmpeg command of step 7 is shown only when `Preferences::show_command` is on. It is off by default, kept in
     `settings.toml` with the other preferences, and a file from an earlier version reads as off.
-  - Not done: the harmonics of a preset have no slider; a multirotor (four motors at once) is not modelled; and the
+  - Not done: the harmonics of a preset have no slider; a multirotor (four motors at once) is not modelled (done in
+    revision 14); and the
     presets were not listened to, only measured.
 - Revision 11, 2026-11-06: the preview in motion.
   - The sound preview was slow because it asked for a new picture four times a second, and each one started FFmpeg
@@ -800,3 +801,47 @@ These do not block P0. The defaults are used unless the owner changes them.
     presets are within 0.4 dB. It is at least 5.1 dB away from the nearest preset (the small park flyer) in an octave
     band, against the 3 dB the test asks for.
   - Not done: it was measured, not listened to, like the others.
+- Revision 14, 2026-11-06: the kind of aircraft, and the sound of a drone.
+  - The sound step asks for the aircraft first, a fixed wing or a drone (`AircraftKind`, `SoundSettings::aircraft`).
+    The kind sets what belongs to the aircraft (`rotors.count`, `motor.off_threshold_pct`, `motor.stopped`, the base
+    and full current, `loudness.pitch_gain`) and then the first sound of the kind; the list of motors and propellers
+    offers only the presets of the kind (`MotorPreset::kind`). Choosing the kind that is already chosen does nothing.
+    The sliders that differ for a drone (the pitch range, the current, the noise bands) have wider ranges for it
+    (`Spec::range`), and the section "Several motors" is shown only for a drone.
+  - Three drone presets (5-inch freestyle, 7-inch long range, ducted cinewhoop). Their level on a flight of a drone
+    (current of 3 to 93 A) is within 0.7 dB of the default; they differ by 3 dB or more from each other in an octave
+    band. The test that sounds differ now compares the presets of the same kind, since the list never offers a
+    plane next to a drone.
+  - The engine renders one harmonic series for each motor (`rotors.count`, up to 8) with a fixed difference of speed
+    (`detune`), a seeded random drift (`wander`) and a part that follows the roll and pitch rates (`attitude`), each
+    motor with its own harmonic phases and its place in the stereo picture. With one motor the code path is the old
+    one: the audio of the default and of the seven fixed-wing presets, and of a mono 44.1 kHz render, is identical to
+    that of the commit before, checked by hashing 20 s of a flight with every signal on (not kept as a test, since
+    it needs the old code to compare with; `real_samples.rs` does it against the Go program when its samples are
+    available).
+  - `Stopped::Spinning` and the column `osd_motor_idle` (1 for the `IDLE` of INAV, 0 for any other throttle
+    reading), because `STOP`, `IDLE` and `DARM` all read as a throttle of 0 and only `IDLE` is a spinning motor. The
+    sound reads the column only for `spinning`, so a fixed wing and its messages are as before.
+  - Not done: the drone presets were measured, not listened to, and their numbers (blade pass from 5,000 to 38,000
+    rpm for the five-inch, and so on) are estimates from typical motors, to be tuned by ear on a real recording. No
+    INAV recording of a drone was available, so the `IDLE` reading is covered by a synthetic test of the decoder
+    and of the engine, not by a real file. A drone preset with a different current for full volume is not offered:
+    the base and full current are set by the kind, and changed by the slider.
+  - Review of this work, same day: the motors moved out of `Engine` (about seventeen loose fields and a loop in
+    `render`) into `synth/rotors.rs` (`RotorBank`, with a `Voice` for each sample), so the engine asks it for the
+    speed ratios and the voice and knows nothing else about several motors; what belongs to a kind of aircraft is
+    listed once (`copy_aircraft`, next to `copy_character`) and not repeated in `AircraftKind::apply`; the range of a
+    slider on a drone lives in the row of the parameter (`Spec::drone_range`) instead of a second table; the units of
+    the sliders of the motors, the golden-ratio constant (three copies) and the time constants have names; the warning
+    about a missing roll or pitch is built by one helper (`note_lost_effects`) and not twice by hand; the test
+    prelude of the sound step and `straight()` of the integration tests are shared. The audio of the fixed wing was
+    checked again against the commit before (10 renders, identical).
+  - Found in the old code and fixed: the streams of noise were `seed * 8 + n`, which overflowed for a seed above 2^61
+    (a panic in a debug build, a silent wrap in a release one). `dsp::stream_seed` wraps, with the same values for
+    every seed that did not overflow, and `tests/synth.rs` keeps a test for it.
+  - Tests dropped as not worth keeping: the round trip of a drone through TOML (it tested `serde`'s derive; the
+    reading of an old file and the key written for a drone are checked instead), and two on the slider ranges and the
+    visibility of a section that only restated a one-line function.
+  - Not done: the settings are not checked for `NaN` (a hand-written `f_max_hz = nan` passes `validate` and makes a
+    silent sound); the sliders cannot produce one, and a check of every field would be a long list for a case that
+    needs the file to be edited by hand.

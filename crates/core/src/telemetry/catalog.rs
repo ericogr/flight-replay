@@ -25,6 +25,7 @@ pub const KEY_MAH_USED: &str = "osd_mah_used";
 pub const KEY_MAH_PER_KM: &str = "osd_mah_per_km";
 pub const KEY_THROTTLE_PCT: &str = "osd_throttle_pct";
 pub const KEY_THROTTLE_AUTO: &str = "osd_throttle_auto";
+pub const KEY_MOTOR_IDLE: &str = "osd_motor_idle";
 pub const KEY_FLIGHT_MODE: &str = "osd_flight_mode";
 pub const KEY_MESSAGE: &str = "osd_message";
 pub const KEY_HEADING_DEG: &str = "osd_heading_deg";
@@ -154,6 +155,12 @@ pub const CATALOG: &[Field] = &[
     field(
         KEY_THROTTLE_AUTO,
         "1 if the throttle is controlled by navigation (auto-throttle), 0 if manual",
+        0,
+        false,
+    ),
+    field(
+        KEY_MOTOR_IDLE,
+        "1 if INAV shows IDLE in place of the throttle (armed, motor idling), 0 for any other throttle reading",
         0,
         false,
     ),

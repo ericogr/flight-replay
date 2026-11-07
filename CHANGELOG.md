@@ -22,6 +22,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   blades, aerobatic power, large slow propeller, pusher, ducted fan), next to the default. They are a starting point:
   every value can still be changed, and the sound list says "Custom" when one was. Two more sliders, the whine pitch
   and the sharpness of the propeller noise.
+- A choice of aircraft in the sound step, a fixed wing or a drone. A drone has its own sounds (5-inch freestyle, 7-inch
+  long range, ducted cinewhoop) and its own settings: four motors that run at slightly different speeds and beat
+  against one another, that never stop while it is armed (they idle where INAV shows `IDLE`, and are silent for `STOP`
+  and `DARM`), and a current for full volume of 60 A. A section "Several motors" sets how many, how much they differ,
+  how much they drift, and how much they follow the roll and pitch. A fixed wing sounds exactly as before, and settings
+  files from before read as a fixed wing.
 - An option to show the FFmpeg command before rendering.
 - "Reset all settings…" in the welcome step. It asks for a confirmation, and then brings every setting and preference
   back to the default: the colour scheme, the FFmpeg folder, the OSD font, the saved sounds and the choices of every
@@ -65,6 +71,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- A noise seed above 2^61 in `settings.toml` made a debug build stop with an arithmetic overflow, and a release build
+  silently wrap the number. The seed is now any 64-bit number, and the sound is the same in both builds.
 - The wind blew hard at the end of the video, with the aircraft already stopped. The statistics screen that INAV shows
   after disarming was not recognised on INAV 7 and earlier (its title is `--- STATS ---`, and only `*** STATS`, the
   title of INAV 8, was looked for), so its numbers were read as readings of the flight: the average speed (72 km/h)

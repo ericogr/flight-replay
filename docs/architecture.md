@@ -23,7 +23,7 @@ draw), it goes in the core, where a command line can use it too.
 | `overlay` | Draws the OSD and the SRT data on a frame, and the chroma-key background. |
 | `telemetry` | Reads the numbers out of the OSD screens. `decoder` and `inav` hold the rules and the glyph table; `table` and `series` put the readings on a timeline; `recording` ties them together; `probe` shows what the OSD says at a time; `profile` says what a firmware can give the sound. |
 | `timeline` | The one mapping between video time and telemetry time (offset and speed), used by the overlay and by the sound so they agree. |
-| `synth` | The sound: settings, signals taken from the telemetry, and the engine (oscillators, filters, noise, limiter). It is deterministic: the same input gives the same bytes, whatever the block size. |
+| `synth` | The sound: settings (with the kind of aircraft), the presets of each kind, signals taken from the telemetry, and the engine (oscillators, filters, noise, limiter). `rotors` gives each motor of a drone a tone of its own, at its own speed. It is deterministic: the same input gives the same bytes, whatever the block size. |
 | `audio` | PCM and WAV writing. |
 | `render` | `RenderPlan` (everything a render needs), `build_plan` (makes one from the files and the settings), `Availability` (what the files at hand allow, and why not), `plan_folder` (makes one for each video of a folder), `render` (does it, with progress and cancelling), and the check of the output. |
 | `config` | The settings of a render, and how to read and write settings files. |
@@ -81,7 +81,7 @@ crates/gui/src
 ├── playback.rs     the picture of a preview that plays: one FFmpeg process decodes the stretch already shrunk, and a
 │                   thread draws on each frame and sends it when the clock gets to it
 ├── audio.rs        plays the sound of the sound preview
-├── sound_params.rs the table of sound parameters the sound step draws its sliders from
+├── sound_params.rs the table of sound parameters the sound step draws its sliders from (with a range for a drone where it differs)
 ├── app/            the state of the application and how it reacts
 │   ├── mod.rs        the struct, and `update`: one flat table from message to handler
 │   ├── files.rs      the video and the files that go with it

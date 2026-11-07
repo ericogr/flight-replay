@@ -9,6 +9,7 @@ use std::sync::Arc;
 use flight_replay_core::ffmpeg::{EncoderInfo, Tools};
 use flight_replay_core::font::BundledFont;
 use flight_replay_core::render::{Event, Outcome};
+use flight_replay_core::synth::AircraftKind;
 use flight_replay_core::telemetry::Recording;
 use iced::Point;
 
@@ -59,6 +60,8 @@ pub enum SoundEdit {
     Param(Param, f64),
     SampleRate(u32),
     Stereo(bool),
+    /// Choose the kind of aircraft: it sets what belongs to the aircraft and the first sound of the kind.
+    Aircraft(AircraftKind),
     /// Take the sound of a kind of motor and propeller: the place in `MOTOR_PRESETS`.
     MotorPreset(usize),
     Preset(String),

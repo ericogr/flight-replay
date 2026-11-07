@@ -4,7 +4,7 @@
 //! The numeric parameters of the sound, as a table: each has a group, a label, a range and a step. The sound step
 //! builds its sliders from this table, so adding a parameter needs no new interface code.
 
-use flight_replay_core::synth::SoundSettings;
+use flight_replay_core::synth::{AircraftKind, MAX_ROTORS, SoundSettings};
 
 /// A numeric parameter of the sound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +12,10 @@ pub enum Param {
     MasterGainDb,
     FIdleHz,
     FMaxHz,
+    Rotors,
+    RotorDetune,
+    RotorWander,
+    RotorAttitude,
     ThrottleCurve,
     OffThresholdPct,
     BatteryGain,
@@ -45,6 +49,7 @@ pub enum Param {
 pub enum Group {
     Level,
     Motor,
+    Rotors,
     Inertia,
     Tone,
     Loudness,
@@ -53,9 +58,10 @@ pub enum Group {
 }
 
 impl Group {
-    pub const ALL: [Group; 7] = [
+    pub const ALL: [Group; 8] = [
         Self::Level,
         Self::Motor,
+        Self::Rotors,
         Self::Inertia,
         Self::Tone,
         Self::Loudness,
@@ -67,12 +73,20 @@ impl Group {
         match self {
             Self::Level => "Level",
             Self::Motor => "Motor",
+            Self::Rotors => "Several motors",
             Self::Inertia => "Inertia (seconds)",
             Self::Tone => "Tone",
             Self::Loudness => "Volume from the current",
             Self::Propeller => "Propeller noise",
             Self::Wind => "Wind",
         }
+    }
+}
+
+impl Group {
+    /// Whether the section is shown for this kind of aircraft: a fixed wing has one motor.
+    pub fn applies_to(self, kind: AircraftKind) -> bool {
+        self != Self::Rotors || kind == AircraftKind::Multirotor
     }
 }
 
@@ -84,8 +98,27 @@ pub struct Spec {
     pub unit: &'static str,
     pub min: f64,
     pub max: f64,
+    /// The range of the slider on a drone, where it is not the same: a drone turns its propellers much faster and
+    /// draws much more current than a plane.
+    pub drone_range: Option<(f64, f64)>,
     pub step: f64,
     pub help: &'static str,
+}
+
+impl Spec {
+    /// The range of the slider for this kind of aircraft.
+    pub fn range(&self, kind: AircraftKind) -> (f64, f64) {
+        match (kind, self.drone_range) {
+            (AircraftKind::Multirotor, Some(range)) => range,
+            _ => (self.min, self.max),
+        }
+    }
+
+    /// The same parameter with another range of the slider on a drone.
+    const fn on_a_drone(mut self, min: f64, max: f64) -> Self {
+        self.drone_range = Some((min, max));
+        self
+    }
 }
 
 #[allow(
@@ -109,6 +142,7 @@ const fn spec(
         unit,
         min,
         max,
+        drone_range: None,
         step,
         help,
     }
@@ -135,7 +169,8 @@ pub const SPECS: &[Spec] = &[
         400.0,
         1.0,
         "Fundamental frequency (blade pass) with the throttle at zero.",
-    ),
+    )
+    .on_a_drone(100.0, 800.0),
     spec(
         Param::FMaxHz,
         Group::Motor,
@@ -145,6 +180,47 @@ pub const SPECS: &[Spec] = &[
         1000.0,
         1.0,
         "Fundamental frequency with the throttle at the maximum.",
+    )
+    .on_a_drone(400.0, 3000.0),
+    spec(
+        Param::Rotors,
+        Group::Rotors,
+        "Number of motors",
+        "",
+        1.0,
+        MAX_ROTORS as f64,
+        1.0,
+        "How many motors the drone has. Each one sounds on its own, at a slightly different speed.",
+    ),
+    spec(
+        Param::RotorDetune,
+        Group::Rotors,
+        "Speed difference",
+        "%",
+        0.0,
+        10.0,
+        0.1,
+        "A fixed difference of speed between the motors. The larger it is, the faster they beat against one another.",
+    ),
+    spec(
+        Param::RotorWander,
+        Group::Rotors,
+        "Speed drift",
+        "%",
+        0.0,
+        10.0,
+        0.1,
+        "How far the speed of each motor drifts, slowly and at random, as the controller corrects the drone.",
+    ),
+    spec(
+        Param::RotorAttitude,
+        Group::Rotors,
+        "Follows roll and pitch",
+        "",
+        0.0,
+        5.0,
+        0.05,
+        "How much the motors on one side speed up and the others slow down when the drone rolls or pitches, in percent of their speed for each 100 degrees per second.",
     ),
     spec(
         Param::ThrottleCurve,
@@ -295,7 +371,8 @@ pub const SPECS: &[Spec] = &[
         10.0,
         0.1,
         "Current with the motor off (video link, servos). It does not count as load.",
-    ),
+    )
+    .on_a_drone(0.0, 20.0),
     spec(
         Param::CurrentFull,
         Group::Loudness,
@@ -305,7 +382,8 @@ pub const SPECS: &[Spec] = &[
         80.0,
         0.5,
         "The current that gives the full volume.",
-    ),
+    )
+    .on_a_drone(10.0, 250.0),
     spec(
         Param::Floor,
         Group::Loudness,
@@ -335,7 +413,8 @@ pub const SPECS: &[Spec] = &[
         3000.0,
         10.0,
         "Centre of the noise band with the throttle at zero.",
-    ),
+    )
+    .on_a_drone(300.0, 6000.0),
     spec(
         Param::PropHigh,
         Group::Propeller,
@@ -345,7 +424,8 @@ pub const SPECS: &[Spec] = &[
         8000.0,
         10.0,
         "Centre of the noise band with the throttle at the maximum.",
-    ),
+    )
+    .on_a_drone(600.0, 12000.0),
     spec(
         Param::PropQ,
         Group::Propeller,
@@ -408,12 +488,21 @@ pub const SPECS: &[Spec] = &[
     ),
 ];
 
+/// The settings of the motors are fractions, and the sliders show them as percentages: of the speed, and of the speed
+/// for each 100 degrees per second of roll or pitch.
+const PERCENT: f64 = 100.0;
+const PERCENT_PER_100_DEGREES_PER_SECOND: f64 = PERCENT * 100.0;
+
 /// The value of a parameter.
 pub fn get(settings: &SoundSettings, param: Param) -> f64 {
     match param {
         Param::MasterGainDb => settings.audio.master_gain_db,
         Param::FIdleHz => settings.motor.f_idle_hz,
         Param::FMaxHz => settings.motor.f_max_hz,
+        Param::Rotors => f64::from(settings.rotors.count),
+        Param::RotorDetune => settings.rotors.detune * PERCENT,
+        Param::RotorWander => settings.rotors.wander * PERCENT,
+        Param::RotorAttitude => settings.rotors.attitude * PERCENT_PER_100_DEGREES_PER_SECOND,
         Param::ThrottleCurve => settings.motor.throttle_curve,
         Param::OffThresholdPct => settings.motor.off_threshold_pct,
         Param::BatteryGain => settings.motor.battery_gain,
@@ -449,6 +538,14 @@ pub fn set(settings: &mut SoundSettings, param: Param, value: f64) {
         Param::MasterGainDb => settings.audio.master_gain_db = value,
         Param::FIdleHz => settings.motor.f_idle_hz = value,
         Param::FMaxHz => settings.motor.f_max_hz = value,
+        Param::Rotors => {
+            settings.rotors.count = value.round().clamp(1.0, MAX_ROTORS as f64) as u8;
+        }
+        Param::RotorDetune => settings.rotors.detune = value / PERCENT,
+        Param::RotorWander => settings.rotors.wander = value / PERCENT,
+        Param::RotorAttitude => {
+            settings.rotors.attitude = value / PERCENT_PER_100_DEGREES_PER_SECOND;
+        }
         Param::ThrottleCurve => settings.motor.throttle_curve = value,
         Param::OffThresholdPct => settings.motor.off_threshold_pct = value,
         Param::BatteryGain => settings.motor.battery_gain = value,
@@ -483,26 +580,33 @@ mod tests {
     use super::*;
     use flight_replay_core::synth::MOTOR_PRESETS;
 
+    /// The sound a kind of aircraft starts with.
+    fn starting_sound(kind: AircraftKind) -> SoundSettings {
+        let (_, first) = kind.presets().next().unwrap();
+        first.settings()
+    }
+
     #[test]
-    fn every_parameter_reads_back_what_was_set_and_the_defaults_are_in_range() {
-        let defaults = SoundSettings::default();
-        for spec in SPECS {
-            let value = get(&defaults, spec.param);
-            assert!(
-                (spec.min..=spec.max).contains(&value),
-                "{}: the default {value} is outside {}..{}",
-                spec.label,
-                spec.min,
-                spec.max
-            );
-            let mut changed = SoundSettings::default();
-            let target = f64::midpoint(spec.min, spec.max);
-            set(&mut changed, spec.param, target);
-            assert!(
-                (get(&changed, spec.param) - target).abs() < 1e-12,
-                "{}",
-                spec.label
-            );
+    fn every_parameter_reads_back_what_was_set_and_the_starting_sounds_are_in_range() {
+        for kind in AircraftKind::ALL {
+            let start = starting_sound(kind);
+            for spec in SPECS.iter().filter(|s| s.group.applies_to(kind)) {
+                let (min, max) = spec.range(kind);
+                let value = get(&start, spec.param);
+                assert!(
+                    (min..=max).contains(&value),
+                    "{kind}, {}: the starting value {value} is outside {min}..{max}",
+                    spec.label,
+                );
+                let mut changed = start.clone();
+                let target = f64::midpoint(min, max).round();
+                set(&mut changed, spec.param, target);
+                assert!(
+                    (get(&changed, spec.param) - target).abs() < 1e-9,
+                    "{}",
+                    spec.label
+                );
+            }
         }
     }
 
@@ -515,22 +619,21 @@ mod tests {
                 a.label
             );
         }
-        assert_eq!(SPECS.len(), 29);
+        assert_eq!(SPECS.len(), 33);
     }
 
     #[test]
-    fn every_motor_preset_fits_in_the_sliders() {
+    fn every_motor_preset_fits_in_the_sliders_of_its_kind() {
         for preset in MOTOR_PRESETS {
             let settings = preset.settings();
-            for spec in SPECS {
+            for spec in SPECS.iter().filter(|s| s.group.applies_to(preset.kind)) {
+                let (min, max) = spec.range(preset.kind);
                 let value = get(&settings, spec.param);
                 assert!(
-                    (spec.min..=spec.max).contains(&value),
-                    "{}: {} is {value}, outside {}..{}",
+                    (min..=max).contains(&value),
+                    "{}: {} is {value}, outside {min}..{max}",
                     preset.name,
                     spec.label,
-                    spec.min,
-                    spec.max
                 );
             }
         }

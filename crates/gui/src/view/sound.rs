@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 EricoGR
 
-use flight_replay_core::synth::{MOTOR_PRESETS, motor_preset_in_use};
+use flight_replay_core::synth::{AircraftKind, MOTOR_PRESETS, motor_preset_in_use};
 use flight_replay_core::telemetry::{DEFAULT_PROBE_COLUMNS, probe_at};
 use iced::Element;
 use iced::Length;
@@ -38,7 +38,10 @@ pub fn view(app: &FlightReplay) -> Element<'_, Message> {
         items.push(section("Preview of the sound", listen(app)));
         items.push(section("Presets", presets(app)));
         items.push(section("Audio format", format(app)));
-        for group in Group::ALL {
+        for group in Group::ALL
+            .into_iter()
+            .filter(|group| group.applies_to(app.settings.sound.aircraft))
+        {
             items.push(section(group.title(), parameters(app, group)));
         }
         items.push(sync_block(app));
@@ -128,18 +131,30 @@ fn presets(app: &FlightReplay) -> Element<'_, Message> {
 }
 
 /// What the sound step says when the values no longer are those of a kind of motor.
-pub const CUSTOM_SOUND_HINT: &str = "Custom: some values were changed by hand. Choosing a kind of motor sets the pitch, the inertia, the tone and the propeller noise, and keeps the rest.";
+pub const CUSTOM_SOUND_HINT: &str = "Custom: some values were changed by hand. Choosing a kind of motor sets the pitch, the inertia, the tone, the propeller noise and, on a drone, how much the motors differ, and keeps the rest.";
 
-/// The sounds that come with the program, one for each kind of motor and propeller. What is chosen is read back from
-/// the settings, so it is right after a restart, and it says "Custom" as soon as a value is changed by hand.
+/// The sounds that come with the program: first the kind of aircraft, which sets what belongs to it, then one sound
+/// for each kind of motor and propeller of that aircraft. What is chosen is read back from the settings, so it is right
+/// after a restart, and it says "Custom" as soon as a value is changed by hand.
 fn motor_presets(app: &FlightReplay) -> Element<'_, Message> {
+    let kind = app.settings.sound.aircraft;
     let in_use = motor_preset_in_use(&app.settings.sound);
-    let choices: Vec<MotorChoice> = (0..MOTOR_PRESETS.len()).map(MotorChoice).collect();
+    let choices: Vec<MotorChoice> = kind
+        .presets()
+        .map(|(index, _)| MotorChoice(index))
+        .collect();
     let explanation = match in_use {
         Some(index) => MOTOR_PRESETS[index].description,
         None => CUSTOM_SOUND_HINT,
     };
     column![
+        labeled(
+            "Aircraft",
+            pick_list(AircraftKind::ALL, Some(kind), |kind| {
+                Message::Sound(SoundEdit::Aircraft(kind))
+            }),
+        ),
+        hint(kind.description()),
         labeled(
             "Motor and propeller",
             pick_list(choices, in_use.map(MotorChoice), |choice| {
@@ -218,13 +233,15 @@ fn format(app: &FlightReplay) -> Element<'_, Message> {
 
 fn parameters(app: &FlightReplay, group: Group) -> Element<'_, Message> {
     let mut lines = column![].spacing(6);
+    let kind = app.settings.sound.aircraft;
     for spec in sound_params::SPECS.iter().filter(|s| s.group == group) {
         let param = spec.param;
+        let (min, max) = spec.range(kind);
         lines = lines.push(slider_row(
             spec.label,
             spec.unit,
             sound_params::get(&app.settings.sound, param),
-            spec.min..=spec.max,
+            min..=max,
             spec.step,
             spec.help,
             move |v| Message::Sound(SoundEdit::Param(param, v)),

@@ -1,20 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 EricoGR
 
-//! Ready-made sounds for different electric motors and propellers.
+//! Ready-made sounds for different aircraft, electric motors and propellers.
 //!
-//! A preset changes the *character* of the sound: the pitch range, how quickly the motor follows the throttle, the
-//! harmonics, the whine and the propeller noise. It leaves alone everything that belongs to the user's aircraft and
-//! recording: the audio format and the master gain, the telemetry columns, the current that gives full volume, the
-//! battery correction, the wind and the G-force effect. So a preset can be chosen at any moment, and every value it
-//! sets can still be changed afterwards.
+//! There are two layers. The **kind of aircraft** ([`AircraftKind`]) sets what belongs to the aircraft: whether the
+//! motor can stop in flight, how many motors there are, and the current that gives full volume. Choosing the kind
+//! also chooses the first preset of the kind. A **preset** changes the *character* of the sound within a kind: the
+//! pitch range, how quickly the motor follows the throttle, the harmonics, the whine, the propeller noise and, on a
+//! drone, how much the motors differ from one another. It leaves alone everything that belongs to the user's
+//! recording: the audio format and the master gain, the telemetry columns, the battery correction, the wind and the
+//! G-force effect. So a preset can be chosen at any moment, and every value it sets can still be changed afterwards.
 //!
-//! A preset is a function that builds a whole [`SoundSettings`] on top of the defaults. Only the fields listed in
-//! [`copy_character`] are taken from it. To add a preset, write one function and add a row to [`MOTOR_PRESETS`]; the
-//! tests check that it is valid, that it is not too loud or too quiet, and that it differs from the others.
+//! A preset is a function that builds a whole [`SoundSettings`] on top of the base of its kind. Only the fields
+//! listed in [`copy_character`] are taken from it. To add a preset, write one function and add a row to
+//! [`MOTOR_PRESETS`]; the tests check that it is valid, that it is not too loud or too quiet, and that it differs
+//! from the others.
 
 use super::settings::{
-    MotorSettings, PropNoiseSettings, SmoothingSettings, SoundSettings, ToneSettings,
+    AircraftKind, LoudnessSettings, MotorSettings, PropNoiseSettings, RotorSettings,
+    SmoothingSettings, SoundSettings, Stopped, ToneSettings,
 };
 
 /// A sound for one kind of motor and propeller.
@@ -24,6 +28,8 @@ pub struct MotorPreset {
     pub name: &'static str,
     /// A line about the aircraft and the sound.
     pub description: &'static str,
+    /// The kind of aircraft the sound is for. The interface offers the presets of the kind that is chosen.
+    pub kind: AircraftKind,
     build: fn() -> SoundSettings,
 }
 
@@ -56,13 +62,52 @@ impl std::fmt::Debug for MotorPreset {
     }
 }
 
-/// The index in [`MOTOR_PRESETS`] of the preset whose character `settings` has, if it has exactly that of one. A
-/// sound that was changed by hand after choosing a preset has none.
+/// The index in [`MOTOR_PRESETS`] of the preset whose character `settings` has, if it has exactly that of one of its
+/// kind of aircraft. A sound that was changed by hand after choosing a preset has none.
 #[must_use]
 pub fn motor_preset_in_use(settings: &SoundSettings) -> Option<usize> {
     MOTOR_PRESETS
         .iter()
-        .position(|preset| preset.is_applied_to(settings))
+        .position(|preset| preset.kind == settings.aircraft && preset.is_applied_to(settings))
+}
+
+impl AircraftKind {
+    /// The presets of the kind, with their place in [`MOTOR_PRESETS`], in the order they are offered. The first is
+    /// the sound the kind starts with.
+    pub fn presets(self) -> impl Iterator<Item = (usize, &'static MotorPreset)> {
+        MOTOR_PRESETS
+            .iter()
+            .enumerate()
+            .filter(move |(_, preset)| preset.kind == self)
+    }
+
+    /// The settings with what belongs to the kind of aircraft and the default character.
+    #[must_use]
+    pub fn base(self) -> SoundSettings {
+        match self {
+            Self::FixedWing => SoundSettings::default(),
+            Self::Multirotor => multirotor_base(),
+        }
+    }
+
+    /// Makes `target` the sound of this kind of aircraft: what belongs to the kind, and the character of its first
+    /// preset. The recording's own settings (the audio format and the master gain, the columns, the battery
+    /// correction, the wind and the G-force effect) stay as they are.
+    pub fn apply(self, target: &mut SoundSettings) {
+        copy_aircraft(&self.base(), target);
+        if let Some((_, first)) = self.presets().next() {
+            first.apply(target);
+        }
+    }
+}
+
+/// What belongs to the kind of aircraft, and not to the sound of a motor or to the recording.
+fn copy_aircraft(from: &SoundSettings, to: &mut SoundSettings) {
+    to.aircraft = from.aircraft;
+    to.rotors.count = from.rotors.count;
+    to.motor.off_threshold_pct = from.motor.off_threshold_pct;
+    to.motor.stopped = from.motor.stopped;
+    to.loudness = from.loudness.clone();
 }
 
 /// What makes the character of a sound. The rest of the settings stays as the user has it.
@@ -76,51 +121,108 @@ fn copy_character(from: &SoundSettings, to: &mut SoundSettings) {
     to.smoothing.current_release_s = from.smoothing.current_release_s;
     to.tone = from.tone.clone();
     to.prop_noise = from.prop_noise.clone();
+    // how many motors there are belongs to the kind of aircraft; how much they differ is character
+    to.rotors.detune = from.rotors.detune;
+    to.rotors.wander = from.rotors.wander;
+    to.rotors.attitude = from.rotors.attitude;
 }
 
-/// The presets, in the order they are offered. The first is the sound the program starts with.
+/// The presets, in the order they are offered. The first of each kind is the sound the kind starts with, and the
+/// first of all is the sound the program starts with.
 pub const MOTOR_PRESETS: &[MotorPreset] = &[
     MotorPreset {
         name: "Default",
         description: "The sound the program starts with: a two-blade propeller, with a warm mid-range tone.",
+        kind: AircraftKind::FixedWing,
         build: SoundSettings::default,
     },
     MotorPreset {
         name: "Small park flyer",
         description: "A small two-blade propeller turning fast: a high, thin tone with some whine, and a quick response.",
+        kind: AircraftKind::FixedWing,
         build: small_park_flyer,
     },
     MotorPreset {
         name: "Small high-KV motor",
         description: "A tiny, high-KV motor spinning a small propeller very fast: a piercing, thin tone with a loud whine, and almost no lag.",
+        kind: AircraftKind::FixedWing,
         build: small_high_kv,
     },
     MotorPreset {
         name: "Sport plane, three blades",
         description: "A three-blade propeller: a higher blade pass and a smoother, rounder sound with broader air noise.",
+        kind: AircraftKind::FixedWing,
         build: three_blade_sport,
     },
     MotorPreset {
         name: "Aerobatic power",
         description: "A big motor on a short propeller: a hard, bright and buzzy sound that answers the throttle at once.",
+        kind: AircraftKind::FixedWing,
         build: aerobatic_power,
     },
     MotorPreset {
         name: "Large slow propeller",
         description: "A long-range plane or motor glider: a deep, rich tone that chops the air, and a motor that is slow to follow.",
+        kind: AircraftKind::FixedWing,
         build: large_slow_propeller,
     },
     MotorPreset {
         name: "Pusher behind the wing",
         description: "A pusher propeller behind the wing or the fuselage: the same motor, but dull and muffled.",
+        kind: AircraftKind::FixedWing,
         build: pusher_muffled,
     },
     MotorPreset {
         name: "Ducted fan",
         description: "An electric ducted fan: a high whine on top of a hiss, with almost no beat of the blades.",
+        kind: AircraftKind::FixedWing,
         build: ducted_fan,
     },
+    MotorPreset {
+        name: "5-inch freestyle",
+        description: "A five-inch drone with three-blade propellers: four motors that buzz against one another, from a rough idle to a high scream, and answer every stick movement.",
+        kind: AircraftKind::Multirotor,
+        build: freestyle_5_inch,
+    },
+    MotorPreset {
+        name: "7-inch long range",
+        description: "A seven-inch drone with big propellers turning slower: lower and rounder than a five-inch, with a smoother, slower response.",
+        kind: AircraftKind::Multirotor,
+        build: long_range_7_inch,
+    },
+    MotorPreset {
+        name: "Cinewhoop, ducted",
+        description: "A small drone with ducted propellers: the same buzz, but muffled by the ducts, with more air noise and less whine.",
+        kind: AircraftKind::Multirotor,
+        build: cinewhoop_ducted,
+    },
 ];
+
+/// What a drone has that a fixed wing does not: several motors that never stop while it is armed, so the motor is
+/// silent only where INAV shows `STOP` or `DARM`; a current that is larger than a plane's (a five-inch draws 15 to
+/// 25 A hovering and 80 to 100 A at full throttle); and a pitch angle that tells nothing about the load, because it
+/// is the lean of the drone and not its climb.
+fn multirotor_base() -> SoundSettings {
+    SoundSettings {
+        aircraft: AircraftKind::Multirotor,
+        motor: MotorSettings {
+            off_threshold_pct: 0.0,
+            stopped: Stopped::Spinning,
+            ..MotorSettings::default()
+        },
+        rotors: RotorSettings {
+            count: 4,
+            ..RotorSettings::default()
+        },
+        loudness: LoudnessSettings {
+            current_base_a: 3.0,
+            current_full_a: 60.0,
+            pitch_gain: 0.0,
+            ..LoudnessSettings::default()
+        },
+        ..SoundSettings::default()
+    }
+}
 
 fn small_park_flyer() -> SoundSettings {
     SoundSettings {
@@ -352,6 +454,109 @@ fn ducted_fan() -> SoundSettings {
     }
 }
 
+/// A five-inch drone, three-blade propellers at 5,000 rpm at idle and 38,000 at full throttle: the blade pass is 250
+/// to 1,900 Hz. The whine of a 14-pole motor is seven times its turning speed, which is 7 / 3 of the blade pass.
+/// Light propellers and a controller that never stops correcting make the response quick.
+fn freestyle_5_inch() -> SoundSettings {
+    let mut s = multirotor_base();
+    s.motor.f_idle_hz = 250.0;
+    s.motor.f_max_hz = 1900.0;
+    s.smoothing = SmoothingSettings {
+        throttle_attack_s: 0.05,
+        throttle_release_s: 0.10,
+        current_attack_s: 0.06,
+        current_release_s: 0.15,
+        ..SmoothingSettings::default()
+    };
+    s.tone = ToneSettings {
+        gain: 0.44,
+        harmonics: vec![1.0, 0.60, 0.42, 0.30, 0.20, 0.13, 0.08],
+        brightness: 0.55,
+        whine_ratio: 2.3,
+        whine_gain: 0.14,
+        stereo_width: 0.55,
+    };
+    s.prop_noise = PropNoiseSettings {
+        gain: 1.00,
+        center_low_hz: 1800.0,
+        center_high_hz: 6000.0,
+        q: 0.9,
+        blade_mod_depth: 0.15,
+    };
+    s.rotors.detune = 0.012;
+    s.rotors.wander = 0.008;
+    s.rotors.attitude = 0.000_15;
+    s
+}
+
+/// A seven-inch drone: larger propellers turn slower for the same thrust (about 3,000 rpm at idle and 20,000 at full
+/// throttle), so the blade pass is lower, and the response is a little slower.
+fn long_range_7_inch() -> SoundSettings {
+    let mut s = multirotor_base();
+    s.motor.f_idle_hz = 160.0;
+    s.motor.f_max_hz = 1000.0;
+    s.smoothing = SmoothingSettings {
+        throttle_attack_s: 0.09,
+        throttle_release_s: 0.20,
+        current_attack_s: 0.09,
+        current_release_s: 0.22,
+        ..SmoothingSettings::default()
+    };
+    s.tone = ToneSettings {
+        gain: 0.46,
+        harmonics: vec![1.0, 0.65, 0.42, 0.26, 0.15, 0.08],
+        brightness: 0.45,
+        whine_ratio: 2.3,
+        whine_gain: 0.06,
+        stereo_width: 0.50,
+    };
+    s.prop_noise = PropNoiseSettings {
+        gain: 0.90,
+        center_low_hz: 900.0,
+        center_high_hz: 3500.0,
+        q: 0.9,
+        blade_mod_depth: 0.20,
+    };
+    s.rotors.detune = 0.010;
+    s.rotors.wander = 0.010;
+    s.rotors.attitude = 0.000_10;
+    s
+}
+
+/// A three-inch drone with ducts around the propellers: small propellers turn fast, and the ducts take the edge off
+/// the upper harmonics and the whine while the air noise stays.
+fn cinewhoop_ducted() -> SoundSettings {
+    let mut s = multirotor_base();
+    s.motor.f_idle_hz = 380.0;
+    s.motor.f_max_hz = 1700.0;
+    s.smoothing = SmoothingSettings {
+        throttle_attack_s: 0.06,
+        throttle_release_s: 0.12,
+        current_attack_s: 0.07,
+        current_release_s: 0.18,
+        ..SmoothingSettings::default()
+    };
+    s.tone = ToneSettings {
+        gain: 0.56,
+        harmonics: vec![1.0, 0.25, 0.08, 0.03],
+        brightness: 0.30,
+        whine_ratio: 2.3,
+        whine_gain: 0.03,
+        stereo_width: 0.45,
+    };
+    s.prop_noise = PropNoiseSettings {
+        gain: 1.10,
+        center_low_hz: 900.0,
+        center_high_hz: 2600.0,
+        q: 0.8,
+        blade_mod_depth: 0.10,
+    };
+    s.rotors.detune = 0.010;
+    s.rotors.wander = 0.008;
+    s.rotors.attitude = 0.000_12;
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,6 +625,7 @@ mod tests {
         for (index, preset) in MOTOR_PRESETS.iter().enumerate() {
             let mut settings = SoundSettings::default();
             settings.audio.sample_rate = 44_100;
+            preset.kind.apply(&mut settings);
             preset.apply(&mut settings);
             assert_eq!(
                 motor_preset_in_use(&settings),
@@ -445,5 +651,76 @@ mod tests {
                 assert_ne!(a.settings(), b.settings(), "{} and {}", a.name, b.name);
             }
         }
+    }
+    #[test]
+    fn every_kind_has_presets_and_every_preset_belongs_to_its_kind() {
+        for kind in AircraftKind::ALL {
+            assert!(kind.presets().next().is_some(), "{kind} has no preset");
+            for (index, preset) in kind.presets() {
+                assert_eq!(MOTOR_PRESETS[index].name, preset.name);
+                assert_eq!(preset.settings().aircraft, kind, "{}", preset.name);
+                assert_eq!(
+                    preset.settings().rotors.count,
+                    kind.base().rotors.count,
+                    "{}",
+                    preset.name
+                );
+            }
+        }
+        // the program starts with the first fixed-wing sound, which is the default
+        assert_eq!(MOTOR_PRESETS[0].kind, AircraftKind::FixedWing);
+    }
+
+    #[test]
+    fn choosing_a_drone_sets_what_belongs_to_a_drone_and_its_first_preset() {
+        let mut settings = SoundSettings::default();
+        AircraftKind::Multirotor.apply(&mut settings);
+        assert_eq!(settings.aircraft, AircraftKind::Multirotor);
+        assert_eq!(settings.rotors.count, 4);
+        assert_eq!(settings.motor.stopped, Stopped::Spinning);
+        assert_eq!(settings.motor.off_threshold_pct, 0.0);
+        assert!(settings.loudness.current_full_a > 40.0);
+        let (first, _) = AircraftKind::Multirotor.presets().next().unwrap();
+        assert_eq!(motor_preset_in_use(&settings), Some(first));
+        assert_eq!(settings.validate(), Ok(()));
+    }
+
+    #[test]
+    fn going_back_to_a_fixed_wing_gives_the_default_sound() {
+        let mut settings = SoundSettings::default();
+        AircraftKind::Multirotor.apply(&mut settings);
+        AircraftKind::FixedWing.apply(&mut settings);
+        assert_eq!(settings, SoundSettings::default());
+    }
+
+    #[test]
+    fn choosing_a_kind_keeps_what_belongs_to_the_recording() {
+        let mut settings = SoundSettings::default();
+        settings.audio.sample_rate = 44_100;
+        settings.audio.channels = 1;
+        settings.audio.master_gain_db = -3.0;
+        settings.columns.current = "my_current".into();
+        settings.motor.battery_gain = 1.5;
+        settings.wind.gain = 0.7;
+        settings.gforce.gain = 0.4;
+        let before = settings.clone();
+        for kind in AircraftKind::ALL {
+            let mut applied = before.clone();
+            kind.apply(&mut applied);
+            assert_eq!(applied.audio, before.audio, "{kind}");
+            assert_eq!(applied.columns, before.columns, "{kind}");
+            assert_eq!(applied.wind, before.wind, "{kind}");
+            assert_eq!(applied.gforce, before.gforce, "{kind}");
+            assert_eq!(applied.motor.battery_gain, 1.5, "{kind}");
+        }
+    }
+
+    #[test]
+    fn a_fixed_wing_preset_is_not_in_use_on_a_drone() {
+        let mut settings = SoundSettings::default();
+        AircraftKind::Multirotor.apply(&mut settings);
+        // the character of the default sound on a drone is nobody's preset
+        MOTOR_PRESETS[0].apply(&mut settings);
+        assert_eq!(motor_preset_in_use(&settings), None);
     }
 }

@@ -10,8 +10,8 @@ use super::super::rule::{
 };
 use crate::telemetry::catalog::{
     KEY_AZIMUTH_DEG, KEY_GFORCE, KEY_GFORCE_X, KEY_GFORCE_Y, KEY_GFORCE_Z, KEY_GROUND_COURSE_DEG,
-    KEY_HEADING_DEG, KEY_HOME_DIR_DEG, KEY_HOME_HEADING_ERROR_DEG, KEY_PITCH_DEG, KEY_ROLL_DEG,
-    KEY_THROTTLE_AUTO, KEY_THROTTLE_PCT,
+    KEY_HEADING_DEG, KEY_HOME_DIR_DEG, KEY_HOME_HEADING_ERROR_DEG, KEY_MOTOR_IDLE, KEY_PITCH_DEG,
+    KEY_ROLL_DEG, KEY_THROTTLE_AUTO, KEY_THROTTLE_PCT,
 };
 use crate::telemetry::inav;
 
@@ -123,12 +123,18 @@ pub(super) fn rules() -> Vec<Rule> {
 ///
 /// A word (`STOP`, `IDLE`, `DARM`) is a throttle of zero. It takes the place of the auto-throttle glyphs too, so
 /// whether navigation was in control cannot be told, and no auto-throttle reading is stored.
+///
+/// Whenever the throttle is read, `osd_motor_idle` says whether the word was `IDLE`: a fixed wing is silent then, but
+/// the motors of a drone spin at their idle speed, and the throttle alone cannot tell `IDLE` from `STOP` and `DARM`.
 fn throttle(groups: &[String], sample: &mut Sample) {
-    if THROTTLE_OFF_WORDS.contains(&groups[2].as_str()) {
+    let word = groups[2].as_str();
+    if THROTTLE_OFF_WORDS.contains(&word) {
         sample.num(KEY_THROTTLE_PCT, 0.0);
+        sample.num(KEY_MOTOR_IDLE, if word == "IDLE" { 1.0 } else { 0.0 });
         return;
     }
     int_field(KEY_THROTTLE_PCT, 2)(groups, sample);
+    sample.num(KEY_MOTOR_IDLE, 0.0);
     let auto = if first_glyph(&groups[1]) == inav::LABEL_AUTO_THROTTLE_0 {
         1.0
     } else {
@@ -182,6 +188,7 @@ mod tests {
         let sample = read(&manual("  8"));
         assert_eq!(sample.number(KEY_THROTTLE_PCT), Some(8.0));
         assert_eq!(sample.number(KEY_THROTTLE_AUTO), Some(0.0));
+        assert_eq!(sample.number(KEY_MOTOR_IDLE), Some(0.0));
         assert_eq!(read(&manual("100")).number(KEY_THROTTLE_PCT), Some(100.0));
 
         let sample = read(&auto(" 42"));
@@ -195,6 +202,9 @@ mod tests {
         for word in ["STOP", "IDLE", "DARM"] {
             let sample = read(&manual(word));
             assert_eq!(sample.number(KEY_THROTTLE_PCT), Some(0.0), "{word}");
+            // only IDLE has the motor spinning
+            let idle = if word == "IDLE" { 1.0 } else { 0.0 };
+            assert_eq!(sample.number(KEY_MOTOR_IDLE), Some(idle), "{word}");
             // the word replaces the auto-throttle glyphs, so who was in control is unknown
             assert!(!sample.contains(KEY_THROTTLE_AUTO), "{word}");
         }
@@ -212,5 +222,6 @@ mod tests {
     fn the_icon_with_some_other_text_is_not_a_throttle() {
         assert!(!read(&manual("GOOD")).contains(KEY_THROTTLE_PCT));
         assert!(!read(&manual("   ")).contains(KEY_THROTTLE_PCT));
+        assert!(!read(&manual("GOOD")).contains(KEY_MOTOR_IDLE));
     }
 }

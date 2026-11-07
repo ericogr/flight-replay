@@ -119,6 +119,13 @@ impl Rng {
     }
 }
 
+/// The seed of one stream of noise of an engine. The streams of a seed are `stream` apart from its first, and 8 apart
+/// from those of the next seed, as in the Go program. The seed is any number a settings file can hold, so the
+/// arithmetic wraps instead of overflowing (a panic in a debug build, silent in a release one).
+pub(super) fn stream_seed(seed: u64, stream: u64) -> u64 {
+    seed.wrapping_mul(8).wrapping_add(stream)
+}
+
 /// A rational tanh approximation: unit slope at 0, saturates at plus or minus 1.
 pub(super) fn soft_clip(x: f64) -> f64 {
     if x >= 3.0 {

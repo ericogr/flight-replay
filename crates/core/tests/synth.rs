@@ -3,22 +3,13 @@
 
 //! Properties of the synthesizer, from its public interface.
 
+mod common;
+
 use std::f64::consts::TAU;
 
-use flight_replay_core::synth::{Controls, Engine, SoundSettings, Stopped};
+use common::straight;
+use flight_replay_core::synth::{AircraftKind, Controls, Engine, SoundSettings, Stopped};
 use flight_replay_core::telemetry::Series;
-use flight_replay_core::timeline::{ScaleMode, SyncOptions, Timeline};
-
-fn straight() -> Timeline {
-    Timeline::new(
-        SyncOptions {
-            scale: ScaleMode::Off,
-            offset_s: 0.0,
-        },
-        60.0,
-        60.0,
-    )
-}
 
 /// A series that holds one value for 60 seconds.
 fn constant(name: &str, value: f64) -> Series {
@@ -36,6 +27,7 @@ fn throttle_only(series: &Series) -> Controls<'_> {
         gforce: None,
         roll: None,
         pitch: None,
+        motor_idle: None,
     }
 }
 
@@ -239,4 +231,233 @@ fn invalid_settings_are_refused() {
     let mut settings = SoundSettings::default();
     settings.motor.f_max_hz = 20.0;
     assert!(Engine::new(settings, throttle_only(&throttle), straight(), 0.0).is_err());
+}
+
+// ---- a drone: several motors that never stop while it is armed
+
+/// The sound of a five-inch drone, with the settings of a drone.
+fn drone() -> SoundSettings {
+    let mut settings = SoundSettings::default();
+    AircraftKind::Multirotor.apply(&mut settings);
+    settings
+}
+
+fn render(
+    settings: SoundSettings,
+    controls: Controls<'_>,
+    seconds: usize,
+    block: usize,
+) -> Vec<f64> {
+    let channels = usize::from(settings.audio.channels);
+    let rate = settings.audio.sample_rate as usize;
+    let mut engine = Engine::new(settings, controls, straight(), 2.0).unwrap();
+    let mut out = vec![0.0; seconds * rate * channels];
+    for chunk in out.chunks_mut(block * channels) {
+        engine.render(chunk);
+    }
+    out
+}
+
+fn peak(samples: &[f64]) -> f64 {
+    samples.iter().fold(0.0, |m, s| f64::max(m, s.abs()))
+}
+
+#[test]
+fn a_drone_idles_where_inav_shows_idle_and_is_silent_where_it_shows_stop_or_disarmed() {
+    let throttle = constant("thr", 0.0);
+    let idle = constant("idle", 1.0);
+    let stopped = constant("idle", 0.0);
+
+    let spinning = render(
+        drone(),
+        Controls {
+            motor_idle: Some(&idle),
+            ..throttle_only(&throttle)
+        },
+        1,
+        4096,
+    );
+    assert!(
+        peak(&spinning) > 0.05,
+        "the motors idle: {}",
+        peak(&spinning)
+    );
+
+    let silent = render(
+        drone(),
+        Controls {
+            motor_idle: Some(&stopped),
+            ..throttle_only(&throttle)
+        },
+        1,
+        4096,
+    );
+    assert!(peak(&silent) < 1e-9, "STOP and DARM are silent");
+
+    // a fixed wing does not idle: for it IDLE is as silent as STOP
+    let plane = render(
+        SoundSettings::default(),
+        Controls {
+            motor_idle: Some(&idle),
+            ..throttle_only(&throttle)
+        },
+        1,
+        4096,
+    );
+    assert!(peak(&plane) < 1e-9);
+}
+
+#[test]
+fn a_drone_sounds_at_a_throttle_a_fixed_wing_would_call_stopped() {
+    let throttle = constant("thr", 1.0);
+    let plane = render(SoundSettings::default(), throttle_only(&throttle), 1, 4096);
+    assert!(peak(&plane) < 1e-9, "a fixed wing stops below 2 %");
+    let drone = render(drone(), throttle_only(&throttle), 1, 4096);
+    assert!(peak(&drone) > 0.05);
+}
+
+/// How much the level changes from one 10 ms window to the next, as a fraction of the mean level.
+fn level_variation(samples: &[f64], channels: usize, rate: usize) -> f64 {
+    let window = rate / 100 * channels;
+    let levels: Vec<f64> = samples
+        .chunks_exact(window)
+        .skip(20) // the first fifth of a second is the motor settling
+        .map(|w| (w.iter().map(|s| s * s).sum::<f64>() / w.len() as f64).sqrt())
+        .collect();
+    let mean = levels.iter().sum::<f64>() / levels.len() as f64;
+    let variance = levels.iter().map(|l| (l - mean).powi(2)).sum::<f64>() / levels.len() as f64;
+    variance.sqrt() / mean
+}
+
+#[test]
+fn the_motors_of_a_drone_beat_against_one_another_and_a_single_motor_does_not() {
+    let throttle = constant("thr", 50.0);
+    // only the tone: no propeller noise and no wind, which are random
+    let tone_only = |mut settings: SoundSettings| {
+        settings.prop_noise.gain = 0.0;
+        settings.wind.gain = 0.0;
+        settings
+    };
+    let variation = |settings: SoundSettings| {
+        let rate = settings.audio.sample_rate as usize;
+        let channels = usize::from(settings.audio.channels);
+        level_variation(
+            &render(tone_only(settings), throttle_only(&throttle), 3, 4096),
+            channels,
+            rate,
+        )
+    };
+
+    let beating = variation(drone());
+    let mut same_speed = drone();
+    same_speed.rotors.detune = 0.0;
+    same_speed.rotors.wander = 0.0;
+    let steady = variation(same_speed);
+    let mut single = drone();
+    single.rotors.count = 1;
+    let one = variation(single);
+
+    assert!(beating > 0.05, "the motors should beat: {beating:.3}");
+    assert!(
+        beating > 4.0 * steady,
+        "beating {beating:.3} against motors at the same speed {steady:.3}"
+    );
+    assert!(
+        beating > 4.0 * one,
+        "beating {beating:.3} against one motor {one:.3}"
+    );
+}
+
+#[test]
+fn with_one_motor_the_settings_of_several_change_nothing() {
+    let throttle = constant("thr", 50.0);
+    let roll = constant("roll", 10.0);
+    let controls = Controls {
+        roll: Some(&roll),
+        ..throttle_only(&throttle)
+    };
+    let plain = render(SoundSettings::default(), controls, 1, 4096);
+    let mut settings = SoundSettings::default();
+    settings.rotors.detune = 0.05;
+    settings.rotors.wander = 0.05;
+    settings.rotors.attitude = 0.005;
+    assert_eq!(plain, render(settings, controls, 1, 4096));
+}
+
+#[test]
+fn a_drone_renders_the_same_whatever_the_block_size() {
+    let times: Vec<f64> = (0..=60).map(f64::from).collect();
+    let wave = |name: &str, f: fn(f64) -> f64| {
+        let values: Vec<f64> = times.iter().map(|&t| f(t)).collect();
+        Series::new(name, &times, &values).unwrap()
+    };
+    let throttle = wave("thr", |t| 30.0 + 25.0 * (t * 0.9).sin());
+    let current = wave("cur", |t| 25.0 + 20.0 * (t * 0.9).sin());
+    let roll = wave("roll", |t| 70.0 * (t * 1.3).sin());
+    let pitch = wave("pitch", |t| 40.0 * (t * 0.8).sin());
+    let idle = constant("idle", 0.0);
+    let controls = Controls {
+        current: Some(&current),
+        roll: Some(&roll),
+        pitch: Some(&pitch),
+        motor_idle: Some(&idle),
+        ..throttle_only(&throttle)
+    };
+    let whole = render(drone(), controls, 3, 144_000);
+    assert!(peak(&whole) > 0.05);
+    for block in [1, 512, 777, 8192] {
+        assert_eq!(
+            whole,
+            render(drone(), controls, 3, block),
+            "blocks of {block}"
+        );
+    }
+    // and the same seed gives the same sound
+    assert_eq!(whole, render(drone(), controls, 3, 4096));
+    let mut other_seed = drone();
+    other_seed.audio.seed = 2;
+    assert_ne!(whole, render(other_seed, controls, 3, 4096));
+}
+
+#[test]
+fn the_roll_rate_changes_the_speed_of_the_motors_only_when_they_follow_it() {
+    let throttle = constant("thr", 50.0);
+    let times: Vec<f64> = (0..=60).map(f64::from).collect();
+    let values: Vec<f64> = times.iter().map(|&t| 80.0 * (t * 2.0).sin()).collect();
+    let rolling = Series::new("roll", &times, &values).unwrap();
+    let level = constant("roll", 0.0);
+    let controls = |roll| Controls {
+        roll: Some(roll),
+        ..throttle_only(&throttle)
+    };
+    // the roll also pans the wind; with no wind, only the motors can tell the two apart
+    let quiet_wind = |attitude| {
+        let mut settings = drone();
+        settings.wind.gain = 0.0;
+        settings.rotors.attitude = attitude;
+        settings
+    };
+    assert_eq!(
+        render(quiet_wind(0.0), controls(&rolling), 2, 4096),
+        render(quiet_wind(0.0), controls(&level), 2, 4096),
+        "motors that do not follow the roll sound the same rolling or level"
+    );
+    assert_ne!(
+        render(quiet_wind(0.0005), controls(&rolling), 2, 4096),
+        render(quiet_wind(0.0005), controls(&level), 2, 4096),
+    );
+}
+
+/// The streams of noise are `seed * 8 + n`, which overflowed for a seed above 2^61: a panic in a debug build, and a
+/// silent wrap in a release one. The seed is any number a settings file can hold.
+#[test]
+fn any_seed_is_accepted() {
+    let throttle = constant("thr", 50.0);
+    for seed in [0, u64::MAX / 8, u64::MAX / 4, u64::MAX] {
+        for mut settings in [SoundSettings::default(), drone()] {
+            settings.audio.seed = seed;
+            let sound = render(settings, throttle_only(&throttle), 1, 4096);
+            assert!(peak(&sound) > 0.05, "seed {seed}");
+        }
+    }
 }

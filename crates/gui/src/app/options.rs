@@ -125,6 +125,13 @@ impl FlightReplay {
             SoundEdit::Stereo(stereo) => {
                 self.settings.sound.audio.channels = if stereo { 2 } else { 1 };
             }
+            SoundEdit::Aircraft(kind) => {
+                // Choosing the kind that is already chosen would throw away what was changed by hand.
+                if self.settings.sound.aircraft != kind {
+                    kind.apply(&mut self.settings.sound);
+                    self.preferences.selected_preset = None;
+                }
+            }
             SoundEdit::MotorPreset(index) => {
                 if let Some(preset) = MOTOR_PRESETS.get(index) {
                     preset.apply(&mut self.settings.sound);

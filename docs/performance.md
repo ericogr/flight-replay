@@ -26,5 +26,6 @@ What the numbers say:
 - Every frame goes through a pipe as RGBA (3.7 MB at 720p, 8.3 MB at 1080p). This was not the limit at 720p. At 1440p
   or 4K, compositing in YUV 4:2:0 would cut the data by 2.7 times, if the pipe turns out to be the limit.
 
-The sound alone (video copied) is much faster: ten seconds of audio take a few milliseconds to make, and the video is
-not touched.
+The sound alone (video copied) is much faster: ten seconds of audio take about 25 ms to make for a fixed wing and
+about 80 ms for a drone, which has a tone for each of its four motors (60 s rendered in 0.14 s and in 0.48 s, release
+build, on the development machine), and the video is not touched.
