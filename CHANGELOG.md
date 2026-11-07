@@ -65,6 +65,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
+- The wind blew hard at the end of the video, with the aircraft already stopped. The statistics screen that INAV shows
+  after disarming was not recognised on INAV 7 and earlier (its title is `--- STATS ---`, and only `*** STATS`, the
+  title of INAV 8, was looked for), so its numbers were read as readings of the flight: the average speed (72 km/h)
+  became the speed of the aircraft until the last frame. The same happened to the other totals on that screen (the
+  maximum current, say). Both titles are known now. On a recording with no other ground speed the wind used to blow at
+  the average speed over the whole video; there is now no wind, and the sound step says so.
 - The motor sounded while it was stopped. The decoder read only a number after the throttle icon, so a recording that
   shows `STOP`, `IDLE` or `DARM` there (or a negative percentage) had no reading for those frames, and the sound held
   the last throttle through them. The frames before the first reading were also given the first reading. A

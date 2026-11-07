@@ -89,13 +89,17 @@ mod telemetry {
         };
         assert_eq!(recording.frames, 5372);
         assert_eq!((recording.columns, recording.rows), (53, 20));
-        // columns decoded: 32 without the layout detection, 34 with it (flight mode and message)
-        assert_eq!(recording.table.header.len(), 32);
+        // The Go program decodes 32 columns here. This decoder reads 25: six of the Go columns (the ground speed,
+        // the power and four raw ones) only ever came from the statistics screen shown after disarming, which this
+        // decoder does not read (INAV 7 titles it `--- STATS ---`, which the Go program does not recognise, and then
+        // takes its maximum and average for readings of the flight). One more column that the Go program has was
+        // already missing before this was changed.
+        assert_eq!(recording.table.header.len(), 25);
 
-        // column, readings, minimum, maximum, mean
+        // column, readings, minimum, maximum, mean. The Go program had 4789 readings, up to 36.70, mean 7.91: the
+        // extra 22 are "MAX CURRENT" of the statistics screen.
         let expected = [
-            ("osd_current_a", 4789, 0.74, 36.70, 7.91),
-            ("osd_gps_speed_kmh", 22, 63.0, 63.0, 63.0),
+            ("osd_current_a", 4767, 0.74, 36.50, 7.78),
             ("osd_batt_cell_v", 5322, 3.34, 3.92, 3.61),
         ];
         for (column, readings, min, max, mean) in expected {
@@ -134,7 +138,11 @@ mod telemetry {
             "throttle max {}",
             throttle.max
         );
+        // The statistics screen of this recording (INAV 7) was the only place that showed a ground speed: 22 readings
+        // of 63 km/h, the average of the flight, which the Go program takes as the speed of the aircraft for the
+        // whole video. Without it there is no speed here.
         for column in [
+            "osd_gps_speed_kmh",
             "osd_air_speed_kmh",
             "osd_gforce",
             "osd_roll_deg",
@@ -152,7 +160,8 @@ mod telemetry {
         let Some(recording) = recording(true) else {
             return;
         };
-        assert_eq!(recording.table.header.len(), 34);
+        // 25 columns without the layout detection, 27 with it (flight mode and message)
+        assert_eq!(recording.table.header.len(), 27);
         assert_eq!(
             recording.layout,
             "flight mode at 45,16,4; status messages on row 13"
@@ -241,15 +250,16 @@ mod sound {
             recording.frames,
         )
         .unwrap();
+        // The Go program reports the ground speed here too, from the 22 readings of the statistics screen (see
+        // `the_signal_statistics_match_the_go_dry_run`). This decoder has none, so the wind has nothing to follow.
         assert_eq!(
             signals.describe(),
-            "found throttle, current, gps_speed, cell_voltage; not in the .osd: air_speed, gforce, roll, pitch"
+            "found throttle, current, cell_voltage; not in the .osd: air_speed, gps_speed, gforce, roll, pitch"
         );
         assert_eq!(
             signals.warnings,
             vec![
-                "only 0% of the OSD frames show osd_gps_speed_kmh (gps_speed); the rest repeat the last reading. Is the element hidden or blinking?",
-                "no airspeed readings in AvatarG0153.osd (osd_air_speed_kmh): the wind will follow the ground speed (osd_gps_speed_kmh) instead",
+                "no airspeed or ground speed readings in AvatarG0153.osd (osd_air_speed_kmh, osd_gps_speed_kmh): the wind sound will be off",
                 "no roll readings in AvatarG0153.osd (osd_roll_deg): the wind will not pan between left and right with the bank angle",
                 "no pitch readings in AvatarG0153.osd (osd_pitch_deg): the load will not follow the climb angle",
             ]
@@ -259,6 +269,11 @@ mod sound {
     /// Renders ten seconds from the second 120 of `AvatarG0153` with the Go motorsound (named by
     /// `FLIGHT_REPLAY_MOTORSOUND`) and with the Rust engine, on the same telemetry and settings, and compares the
     /// samples.
+    ///
+    /// The wind is off on both sides. The Go program takes the 63 km/h average of the statistics screen of this
+    /// INAV 7 recording for the speed of the aircraft, and makes a wind of it for the whole video, which this
+    /// decoder does not (there is no speed in this recording once that screen is left out). What is compared is the
+    /// motor and the propeller.
     #[test]
     fn the_audio_matches_the_go_program_sample_by_sample() {
         let Some(dir) = samples() else { return };
@@ -272,6 +287,8 @@ mod sound {
             .args([
                 "--quiet",
                 "--force",
+                "--set",
+                "wind.gain=0",
                 "--start",
                 "00:02:00",
                 "--duration",
@@ -300,7 +317,8 @@ mod sound {
 
         let recording =
             Recording::load(&dir.join("AvatarG0153.osd"), LoadOptions::default()).unwrap();
-        let settings = SoundSettings::default();
+        let mut settings = SoundSettings::default();
+        settings.wind.gain = 0.0;
         let signals = SignalSet::collect(
             &recording.table,
             &settings,
@@ -333,14 +351,14 @@ mod sound {
             "the Rust audio differs from the Go audio by up to {worst} LSB"
         );
         let render_stats = engine.stats();
-        // the Go program reported: peak -4.6 dBFS, rms -16.2 dBFS
+        // the Go program reported, with the wind off: peak -8.4 dBFS, rms -18.6 dBFS
         assert!(
-            (20.0 * render_stats.peak.log10() + 4.6).abs() < 0.1,
+            (20.0 * render_stats.peak.log10() + 8.4).abs() < 0.1,
             "peak {} dBFS",
             20.0 * render_stats.peak.log10()
         );
         assert!(
-            (20.0 * render_stats.rms.log10() + 16.2).abs() < 0.1,
+            (20.0 * render_stats.rms.log10() + 18.6).abs() < 0.1,
             "rms {} dBFS",
             20.0 * render_stats.rms.log10()
         );

@@ -39,17 +39,35 @@ fn cell(sample: &Sample, field: &Field) -> String {
     }
 }
 
-/// The one deliberate difference from the Go decoder. Where INAV shows STOP, IDLE or DARM, or a negative percentage,
-/// in place of the throttle, the Go decoder reads nothing, and this one reads 0 (or the negative percentage, with 0
-/// for "manual" in the auto-throttle column). See docs/telemetry/inav.md. It only applies where Go reads nothing,
-/// so a throttle that Go reads and this one reads differently is still a mismatch.
-fn is_known_difference(key: &str, expected: &str, got: &str) -> bool {
+/// The deliberate differences from the Go decoder (see docs/telemetry/inav.md).
+///
+/// - Where INAV shows STOP, IDLE or DARM, or a negative percentage, in place of the throttle, Go reads nothing and
+///   this decoder reads 0 (or the negative percentage, with 0 for "manual" in the auto-throttle column).
+/// - The statistics screen of INAV 7 and earlier is titled `--- STATS ---`, which Go does not know, so it reads the
+///   maximums and averages of the flight as readings. This decoder skips the screen: it reads nothing where Go reads
+///   something. That is only allowed on a frame that shows the title, and nothing else is.
+///
+/// Each only applies where the other decoder reads nothing, or where a statistics screen is shown, so a reading that
+/// both make and differ on is still a mismatch.
+fn is_known_difference(key: &str, expected: &str, got: &str, statistics_screen: bool) -> bool {
+    if statistics_screen {
+        return got.is_empty() && !expected.is_empty();
+    }
     expected.is_empty()
         && match key {
             KEY_THROTTLE_PCT => got == "0" || got.starts_with('-'),
             KEY_THROTTLE_AUTO => got == "0",
             _ => false,
         }
+}
+
+/// Whether the frame is the statistics screen of an INAV before 8, which Go reads as the flight.
+fn is_old_statistics_screen(frame: &flight_replay_core::osd::Frame, rows: u32) -> bool {
+    (0..rows).any(|y| {
+        let row = frame.row(y);
+        let title: Vec<u16> = "--- STATS".bytes().map(u16::from).collect();
+        row.windows(title.len()).any(|window| window == title)
+    })
 }
 
 /// A small CSV reader: `;` separated, with double-quoted fields.
@@ -131,6 +149,7 @@ fn the_decoder_reproduces_the_reference_csv() {
     let mut known_differences = 0usize;
     for (frame_index, frame) in osd.frames.iter().enumerate() {
         let (sample, _) = decoder.decode(&osd, frame);
+        let statistics_screen = is_old_statistics_screen(frame, osd.rows);
         assert_eq!(
             rows[frame_index][0],
             frame.time_ms.to_string(),
@@ -145,7 +164,7 @@ fn the_decoder_reproduces_the_reference_csv() {
             };
             let got = cell(&sample, field);
             compared += usize::from(!expected.is_empty());
-            if is_known_difference(&field.key, &expected, &got) {
+            if is_known_difference(&field.key, &expected, &got, statistics_screen) {
                 known_differences += 1;
             } else if got != expected {
                 *per_column.entry(field.key.to_string()).or_default() += 1;
@@ -156,7 +175,7 @@ fn the_decoder_reproduces_the_reference_csv() {
         }
     }
     eprintln!(
-        "decoded {} frames in {:?}; {compared} readings compared, {known_differences} throttle readings that Go does not make",
+        "decoded {} frames in {:?}; {compared} readings compared, {known_differences} that differ on purpose (see is_known_difference)",
         osd.frames.len(),
         started.elapsed()
     );

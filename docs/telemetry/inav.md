@@ -18,7 +18,8 @@ It is a port of the decoder of fpv-motorsound (Go), which comes from fpv-osd-dec
 6. The flight mode and the status messages have no anchor glyph. Their position is found in the recording by
    `detect_flight_modes` and `detect_message_row`.
 
-The statistics screen shown after disarming is not read at all. The splash screen shown while arming is read by the
+The statistics screen shown after disarming is not read at all (see "Differences from the Go code" for how it is
+recognised). The splash screen shown while arming is read by the
 rules, but not by the generic pass. A field that is not readable in a frame (blinking, no GPS) is absent from the
 sample. It is never zero.
 
@@ -56,6 +57,13 @@ asked for when there is no ground speed either.
 
 ## Differences from the Go code
 
+- The statistics screen is known by its title in every INAV version: `*** STATS` from INAV 8, `--- STATS` before.
+  The Go decoder knows only the first, so on a recording of INAV 7 or earlier it reads that screen as the flight: the
+  maximum and average speed, the maximum current and the other totals become readings, and they last until the end of
+  the recording. In the sound, the average speed became a wind that blew at the end of the video with the aircraft
+  already on the ground, and, on a recording that has no other speed (the ground speed element is off), over the
+  whole video. This decoder reads nothing from that screen. `crates/core/tests/telemetry_reference.rs` allows the
+  difference, only on a frame that shows the old title.
 - The throttle reads `STOP`, `IDLE` and `DARM` as 0, and a negative percentage as shown. The Go decoder reads
   nothing for those frames, so the sound held the last throttle through them (and, before the first reading, the
   first one). On a recording that starts with `STOP` on the screen the motor sounded at the first percentage seen,
