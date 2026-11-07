@@ -5,15 +5,53 @@
 
 use std::path::PathBuf;
 
+use flight_replay_core::config::Settings;
 use flight_replay_core::synth::{MOTOR_PRESETS, SoundSettings};
 use iced::Task;
 
-use super::FlightReplay;
+use super::{FlightReplay, ToolsState};
 use crate::message::{Message, OsdEdit, OutputEdit, SoundEdit, SrtEdit, SyncEdit};
+use crate::preferences::Preferences;
 use crate::sound_params;
+use crate::state::FileKind;
 use crate::tasks;
 
 impl FlightReplay {
+    /// The user asked to reset everything: nothing changes until they confirm.
+    pub(super) fn ask_reset_all(&mut self) -> Task<Message> {
+        self.confirming_reset = !self.is_rendering();
+        Task::none()
+    }
+
+    /// Brings every setting and preference back to the default, as in the first run. The file is written with the
+    /// defaults by the usual save after a message. The video and the files that go with it stay open: they are not
+    /// settings. It does nothing unless [`Self::ask_reset_all`] was answered with a yes.
+    pub(super) fn reset_all(&mut self) -> Task<Message> {
+        if !std::mem::take(&mut self.confirming_reset) || self.is_rendering() {
+            return Task::none();
+        }
+        let ffmpeg_was_chosen = self.settings.ffmpeg_dir.is_some();
+        self.settings = Settings::default();
+        self.preferences = Preferences::default();
+        self.preset_name.clear();
+        self.stretch_on = false;
+        self.recompute_signals();
+        // The default encoder may not be one that works here.
+        let encoders = self
+            .encoders
+            .clone()
+            .map_or_else(Task::none, |list| self.encoders_detected(list));
+        self.notices
+            .push("Every setting was brought back to the default.".to_owned());
+        // The font is a setting too. Taking it out also draws the preview again.
+        let preview = self.clear_file(FileKind::Font);
+        if ffmpeg_was_chosen {
+            // Without the folder the user chose, FFmpeg is looked for where a first run would look.
+            self.tools = ToolsState::Searching;
+            return Task::batch([encoders, preview, tasks::locate_tools(None)]);
+        }
+        Task::batch([encoders, preview])
+    }
     pub(super) fn set_draw_osd(&mut self, on: bool) -> Task<Message> {
         self.settings.draw_osd = on;
         self.refresh_preview_if_open()

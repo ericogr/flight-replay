@@ -23,6 +23,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   still be changed, and the sound list says "Custom" when one was. Two more sliders, the whine pitch and the sharpness
   of the propeller noise.
 - An option to show the FFmpeg command before rendering.
+- "Reset all settings…" in the welcome step. It asks for a confirmation, and then brings every setting and preference
+  back to the default: the colour scheme, the FFmpeg folder, the OSD font, the saved sounds and the choices of every
+  step. The video and the files that are open stay open.
 - Play and Stop in the OSD step and in the SRT data step: ten seconds of the video from the time on the slider, with
   the OSD or the SRT data drawn on it, to check the layer in motion. It has no sound; the motor sound keeps its own
   step.

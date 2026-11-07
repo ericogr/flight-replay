@@ -54,7 +54,8 @@ winget install Gyan.FFmpeg   # Windows
 
 ## Use
 
-1. **Welcome.** It shows where FFmpeg was found and which encoders work. Choose the colour scheme.
+1. **Welcome.** It shows where FFmpeg was found and which encoders work. Choose the colour scheme. "Reset all settings…"
+   brings every setting back to the default, after asking you to confirm.
 2. **Input.** Drop the video on the window, or choose it. The `.osd` and `.srt` with the same name next to it are
    opened by themselves. Choose the OSD font: one of the list ("Built in"), or the file for your firmware, a
    `WS_..._24.png` sheet such as `WS_INAV_Europa_24.png`. The program carries the default font of INAV and a Betaflight

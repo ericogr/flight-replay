@@ -74,6 +74,8 @@ pub struct FlightReplay {
     system_mode: iced::theme::Mode,
     file: SettingsFile,
     pub notices: Vec<String>,
+    /// The user asked to reset every setting and has not answered the question yet. It is never remembered.
+    pub confirming_reset: bool,
 
     pub tools: ToolsState,
     pub encoders: Option<Arc<Vec<EncoderInfo>>>,
@@ -137,6 +139,7 @@ impl FlightReplay {
             system_mode: iced::theme::Mode::None,
             file,
             notices: notice.into_iter().collect(),
+            confirming_reset: false,
             tools: ToolsState::Searching,
             encoders: None,
             step: Step::Welcome,
@@ -374,6 +377,12 @@ impl FlightReplay {
                 Task::none()
             }
             Message::CloseRequested => self.close_requested(),
+            Message::AskResetAll => self.ask_reset_all(),
+            Message::CancelResetAll => {
+                self.confirming_reset = false;
+                Task::none()
+            }
+            Message::ResetAll => self.reset_all(),
             Message::SaveSettings => {
                 self.settings_save_due();
                 Task::none()
@@ -492,6 +501,8 @@ impl FlightReplay {
         self.step = target;
         // What plays belongs to the step it was started in.
         let stopped = if leaving {
+            // A question left open on the welcome step is not waiting when the user comes back.
+            self.confirming_reset = false;
             self.play_error = None;
             self.stop_play()
         } else {

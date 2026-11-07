@@ -183,6 +183,12 @@ pub enum Message {
     // application
     SystemTheme(iced::theme::Mode),
     CloseRequested,
+    /// The user asked to bring every setting back to the default: the program waits for the confirmation.
+    AskResetAll,
+    /// The user changed their mind about the reset.
+    CancelResetAll,
+    /// The user confirmed the reset.
+    ResetAll,
     /// The time has come to write the settings that changed in a burst of edits.
     SaveSettings,
 }

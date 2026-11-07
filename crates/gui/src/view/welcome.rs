@@ -43,7 +43,39 @@ pub fn view(app: &FlightReplay) -> Element<'_, Message> {
         intro.into(),
         section("FFmpeg", ffmpeg),
         section("Appearance", theme_buttons(app)),
+        section("Settings", reset_settings(app)),
     ])
+    .into()
+}
+
+/// The way back to the default settings. It asks first: it forgets the saved sounds and the choices of every step.
+fn reset_settings(app: &FlightReplay) -> Element<'_, Message> {
+    if !app.confirming_reset {
+        return column![
+            hint(
+                "Brings every choice of every step back to what it was the first time the program ran. The video and the files that are open stay as they are."
+            ),
+            action(
+                "Reset all settings…",
+                (!app.is_rendering()).then_some(Message::AskResetAll)
+            ),
+        ]
+        .spacing(8)
+        .into();
+    }
+    column![
+        problem(
+            "Reset all settings? The FFmpeg folder, the font, the colour scheme, the saved sounds and every choice of the steps are forgotten. This cannot be undone."
+        ),
+        row![
+            button(text("Yes, reset everything"))
+                .on_press(Message::ResetAll)
+                .style(button::danger),
+            action("Cancel", Some(Message::CancelResetAll)),
+        ]
+        .spacing(8),
+    ]
+    .spacing(8)
     .into()
 }
 
