@@ -37,10 +37,14 @@ for a folder.
 
 ## Where it has been tested
 
-- **Linux, 64-bit Intel/AMD:** the whole workflow has been run by hand, from the files to the finished video, and works.
-- **Windows and macOS:** **not tested by hand.** The program is built and its automated tests pass on both in CI, but
-  nobody has yet run it on a real Windows or macOS system, so expect rough edges there (the window, the install of
-  FFmpeg, the hardware encoders). [Reports](https://github.com/ericogr/flight-replay/issues) are welcome.
+| System | Built, and automated tests pass (CI) | Run by hand, from the files to the finished video |
+|---|:---:|:---:|
+| Linux, 64-bit Intel/AMD | ✅ | ✅ works |
+| Windows, 64-bit Intel/AMD | ✅ | ❌ not tested |
+| macOS, Apple Silicon | ✅ | ❌ not tested |
+
+Nobody has yet run the program on a real Windows or macOS system, so expect rough edges there (the window, the install
+of FFmpeg, the hardware encoders). [Reports](https://github.com/ericogr/flight-replay/issues) are welcome.
 
 ## Install
 
