@@ -1055,7 +1055,10 @@ fn a_preview_that_plays_ends_by_itself_and_goes_back_to_where_it_started() {
     // Half a second is left of the clip, which is all that plays.
     app.app.preview.time_s = 2.5;
     let pictures = app.send(Message::PlayPicture);
-    assert!(pictures > 5, "the stream gave pictures: {pictures}");
+    // A frame that comes more than one frame late is skipped on purpose (see `playback::should_skip`), so how many
+    // pictures arrive depends on the speed of the machine: a slow runner gives one. What must hold is that the
+    // stream gave some, and ended.
+    assert!(pictures >= 1, "the stream gave pictures: {pictures}");
     assert!(!app.app.is_playing(), "it ended");
     assert_eq!(app.app.preview.time_s, 2.5, "back where it started");
     assert!(app.app.preview.handle.is_some());
