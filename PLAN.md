@@ -934,4 +934,14 @@ These do not block P0. The defaults are used unless the owner changes them.
   holds **Close**, which sends the same message as the close button of the window. It is not offered before a render,
   while one runs, after one that failed (the way on is "Try again") or between two videos of a queue. A test for each
   case, with each rule undone once to see it fail.
-
+- Revision 19, 2026-11-08: a new icon. The old one (a blue propeller over sound bars, in the colours of Discord) read
+  as a stick and said nothing about replay. The new one is a three-blade propeller whose hub is a play button, inside a
+  ring that thickens into an arrowhead. The propeller is the part that every aircraft the program makes sound for has,
+  a plane or a drone, and the play button and the ring say replay. A quadcopter and a jet were tried and left out
+  because each one is only one of the two. Each blade is narrow at the root and wide at the tip, with its back half
+  darker, which is what keeps it from looking like a flower. `assets/icon/flight-replay.svg` is plain (paths, one
+  gradient, no clip paths and no `<use>`) so every renderer draws it the same way. The seven PNG sizes were rendered
+  from it with headless Chrome on a transparent background, one render for each size, and the `.ico` is the 16 to 256
+  px PNGs put together with ImageMagick (`convert`). Checked: `make check`; the pictures from 16 to 512 px, by eye.
+  Not checked: the icon in a real window manager, in Windows Explorer or in the macOS Dock (the `.icns` is made from
+  the PNGs and its layout is tested, but it was not opened on a Mac).

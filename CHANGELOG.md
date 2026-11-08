@@ -38,6 +38,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   FFmpeg was not found. Builds made from git, whose version cannot be read, are still accepted.
 - The search looks last in the `ffmpeg` folder of the application's data folder, so an FFmpeg of the user always
   wins over a copy the application keeps.
+- A new icon: a three-blade propeller whose hub is a play button, inside a replay ring that thickens into an
+  arrowhead. It replaces the blue propeller over sound bars, which read as a stick and said nothing about replay. A
+  propeller fits a plane and a drone alike. The SVG is plain (paths and one gradient), and the PNG sizes and the `.ico`
+  were drawn from it again.
 
 ## [0.1.0] - 2026-11-07
 
