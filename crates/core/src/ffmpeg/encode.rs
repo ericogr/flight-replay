@@ -13,7 +13,7 @@ use std::process::{Child, ChildStdin, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread::JoinHandle;
 
-use super::process::{collect_stderr, read_progress};
+use super::process::{collect_stderr, kill_tree, read_progress};
 use super::progress::{Progress, parse_progress_line};
 use super::tools::command;
 use super::{FfmpegError, Tools};
@@ -360,7 +360,7 @@ impl EncodeProcess {
     fn kill_and_clean(&mut self) {
         drop(self.stdin.take());
         if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
+            kill_tree(&mut child);
             let _ = child.wait();
         }
         let _ = self.join_stderr();

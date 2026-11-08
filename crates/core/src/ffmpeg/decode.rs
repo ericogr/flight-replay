@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::{Child, ChildStdout, Stdio};
 use std::thread::JoinHandle;
 
-use super::process::collect_stderr;
+use super::process::{collect_stderr, kill_tree};
 use super::tools::command;
 use super::{FfmpegError, Tools};
 
@@ -197,7 +197,7 @@ impl FrameReader {
 
     fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
+            kill_tree(&mut child);
             let _ = child.wait();
         }
         if let Some(handle) = self.stderr.take() {
