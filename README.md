@@ -35,6 +35,13 @@ When the OSD does not show something the sound needs, the sound step says which 
 Configurator (OSD tab), such as "Throttle Position", to get it on the next flight. The same is done, video by video,
 for a folder.
 
+## Where it has been tested
+
+- **Linux, 64-bit Intel/AMD:** the whole workflow has been run by hand, from the files to the finished video, and works.
+- **Windows and macOS:** **not tested by hand.** The program is built and its automated tests pass on both in CI, but
+  nobody has yet run it on a real Windows or macOS system, so expect rough edges there (the window, the install of
+  FFmpeg, the hardware encoders). [Reports](https://github.com/ericogr/flight-replay/issues) are welcome.
+
 ## Install
 
 Download the archive of your system from the [releases page](https://github.com/ericogr/flight-replay/releases).
