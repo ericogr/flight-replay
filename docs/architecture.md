@@ -82,6 +82,7 @@ crates/gui/src
 ├── playback.rs     the picture of a preview that plays: one FFmpeg process decodes the stretch already shrunk, and a
 │                   thread draws on each frame and sends it when the clock gets to it
 ├── audio.rs        plays the sound of the sound preview
+├── logo.rs         the icon built into the program, decoded once, for the window and for the welcome step
 ├── sound_params.rs the table of sound parameters the sound step draws its sliders from (with a range for a drone where it differs)
 ├── app/            the state of the application and how it reacts
 │   ├── mod.rs        the struct, and `update`: one flat table from message to handler

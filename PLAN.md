@@ -945,3 +945,11 @@ These do not block P0. The defaults are used unless the owner changes them.
   px PNGs put together with ImageMagick (`convert`). Checked: `make check`; the pictures from 16 to 512 px, by eye.
   Not checked: the icon in a real window manager, in Windows Explorer or in the macOS Dock (the `.icns` is made from
   the PNGs and its layout is tested, but it was not opened on a Mac).
+- Revision 20, 2026-11-08: the icon on the welcome step. The step was text only and left half of the window empty. The
+  icon now sits at the left of the introduction, 128 px wide, drawn from the 256 px picture so that a screen with a
+  scale of 2 shows it as it is. The window icon and this picture were each decoded from the same PNG; `logo.rs` now
+  decodes it once for both, and the decode `expect`s, because the picture is built into the program and a bad one is a
+  mistake of the build (the walk-through test draws the step, so it would fail). The introduction column takes the rest
+  of the width, so its line wraps in the narrowest window (900 px) where it would have run past the edge beside the
+  icon. Checked: `make check`, and the picture of the step in the light scheme. In the dark scheme only the icon on the
+  dark background was looked at, not the step. No test was added: there is no logic in it.

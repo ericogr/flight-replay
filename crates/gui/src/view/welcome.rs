@@ -5,22 +5,35 @@
 //! lives on the settings screen.
 
 use flight_replay_core::display;
-use iced::Element;
-use iced::widget::{column, text};
+use iced::widget::{column, image, row, text};
+use iced::{Alignment, Element, Length};
 
 use super::widgets::{action, good, hint, labeled, page, problem, section};
 use crate::app::{FlightReplay, ToolsState};
+use crate::logo;
 use crate::message::Message;
 
 /// Below this much free space the summary warns: a render of a long video can take several gigabytes.
 const LOW_DISK_BYTES: u64 = 5_000_000_000;
+
+/// The side of the icon beside the introduction, in logical pixels. The picture is 256 px, so this is half of it.
+const LOGO_SIZE: f32 = 128.0;
 
 pub fn view(app: &FlightReplay) -> Element<'_, Message> {
     let intro = column![
         text("Flight Replay adds the flight controller OSD, the SRT data and a synthetic motor sound to a Walksnail Avatar recording.").size(16),
         hint("The wizard goes through the video, what to draw on it, the sound and how to encode the result."),
     ]
-    .spacing(6);
+    .spacing(6)
+    .width(Length::Fill);
+    let header = row![
+        image(logo::handle())
+            .width(Length::Fixed(LOGO_SIZE))
+            .height(Length::Fixed(LOGO_SIZE)),
+        intro
+    ]
+    .spacing(20)
+    .align_y(Alignment::Center);
 
     let mut summary = column![
         labeled(
@@ -48,7 +61,7 @@ pub fn view(app: &FlightReplay) -> Element<'_, Message> {
         ));
     }
 
-    page(vec![intro.into(), section("Summary", summary)]).into()
+    page(vec![header.into(), section("Summary", summary)]).into()
 }
 
 fn ffmpeg_line(app: &FlightReplay) -> Element<'_, Message> {

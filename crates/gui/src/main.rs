@@ -11,6 +11,7 @@
 
 mod app;
 mod audio;
+mod logo;
 mod message;
 mod playback;
 mod preferences;
@@ -52,7 +53,7 @@ fn window_settings() -> iced::window::Settings {
     iced::window::Settings {
         size: iced::Size::new(1100.0, 820.0),
         min_size: Some(iced::Size::new(900.0, 600.0)),
-        icon: window_icon(),
+        icon: logo::window_icon(),
         #[cfg(target_os = "linux")]
         platform_specific: iced::window::settings::PlatformSpecific {
             application_id: "flight-replay".to_owned(),
@@ -60,15 +61,4 @@ fn window_settings() -> iced::window::Settings {
         },
         ..Default::default()
     }
-}
-
-/// The icon of the window. The window has no icon when the picture cannot be read, which never happens with the
-/// one that is built in.
-fn window_icon() -> Option<iced::window::Icon> {
-    let png = include_bytes!("../../../assets/icon/flight-replay-256.png");
-    let picture = image::load_from_memory_with_format(png, image::ImageFormat::Png)
-        .ok()?
-        .into_rgba8();
-    let (width, height) = picture.dimensions();
-    iced::window::icon::from_rgba(picture.into_raw(), width, height).ok()
 }

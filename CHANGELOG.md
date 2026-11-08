@@ -42,6 +42,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   arrowhead. It replaces the blue propeller over sound bars, which read as a stick and said nothing about replay. A
   propeller fits a plane and a drone alike. The SVG is plain (paths and one gradient), and the PNG sizes and the `.ico`
   were drawn from it again.
+- The welcome step shows the icon beside the introduction, which now wraps instead of running past the edge of a
+  narrow window. The window and the welcome step share one decoded copy of the icon.
 
 ## [0.1.0] - 2026-11-07
 
