@@ -505,10 +505,10 @@ phase that is not started yet are not blocked by anything else unless the text s
 - [x] Add `.gitignore`: `target/`, `dist/`, `*.partial`, temporary WAV files, `local/`
 - [x] Add `README.md` (title "Flight Replay") and `CHANGELOG.md`
 - [x] Open an empty iced window in `flight-replay`
-- [x] Add the CI workflow `ci.yml` for Linux, Windows and macOS (written; not yet run on GitHub)
+- [x] Add the CI workflow `ci.yml` for Linux, Windows and macOS (green on the three systems since `ac7e749`, 2026-11-08)
 - [x] `make check` passes on Linux
-- [ ] `make check` passes on Windows (CI)
-- [ ] `make check` passes on macOS (CI)
+- [x] `make check` passes on Windows (CI). The first run found that the shim of Chocolatey left FFmpeg running (fixed, `8ecf5f3`)
+- [x] `make check` passes on macOS (CI)
 - [x] The empty window opens on Linux
 - [ ] The empty window opens on Windows
 - [ ] The empty window opens on macOS
@@ -624,15 +624,15 @@ phase that is not started yet are not blocked by anything else unless the text s
 
 **P9: release**
 
-- [ ] `make dist` archives for each OS: the Linux archive was built and installed here; the Windows and macOS layouts are unit-tested, and their first real build is the release workflow
-- [ ] Windows zip: written and unit-tested; not built on Windows yet
-- [ ] macOS `Flight Replay.app`: written and unit-tested (Info.plist, icon, permissions); not built or opened on macOS yet
+- [x] `make dist` archives for each OS: built by the release workflow on a runner of each system, downloaded, and checked against `SHA256SUMS` (a local build of the Linux one was installed earlier; the released one was not)
+- [ ] Windows zip: built on Windows by the release workflow and holds `flight-replay.exe`; not run on a Windows desktop yet
+- [ ] macOS `Flight Replay.app`: built on macOS by the release workflow, with the executable bit on the program; not opened on a Mac yet
 - [x] Source archive with each release
 - [x] Review `NOTICE` and `THIRD_PARTY_NOTICES.md`
 - [x] Decide on bundling FFmpeg (D6): not bundled in v0.1.0
-- [ ] Release workflow `release.yml`: written; it has not run, since the repository has no remote yet
-- [ ] Tag `v0.1.0`
-- [ ] Install and run on three OSes
+- [x] Release workflow `release.yml`: ran on the tag and published the release (2026-11-08)
+- [x] Tag `v0.1.0` (at `ac7e749`): https://github.com/ericogr/flight-replay/releases/tag/v0.1.0
+- [ ] Install and run on three OSes: none of the released archives was installed and run yet (a local Linux build was, earlier)
 
 ## 12. Risks
 
