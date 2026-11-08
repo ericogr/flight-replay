@@ -5,10 +5,11 @@
 
 use std::path::PathBuf;
 
+use flight_replay_core::cancel::CancelToken;
 use flight_replay_core::ffmpeg::Tools;
 use flight_replay_core::paths::folder_or_current;
 use flight_replay_core::render::{
-    CancelToken, Event, PlanInputs, RenderPlan, Stage, Window, build_plan, command_preview,
+    Event, PlanInputs, RenderPlan, Stage, Window, build_plan, command_preview,
 };
 use iced::Task;
 use std::sync::Arc;

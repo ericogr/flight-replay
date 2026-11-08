@@ -76,6 +76,12 @@ brew install ffmpeg          # macOS (https://brew.sh)
 winget install Gyan.FFmpeg   # Windows
 ```
 
+Or skip this step: the first time you open Flight Replay and it finds no FFmpeg (or one older than 6), it opens its
+**Settings**, where **Install FFmpeg** downloads a copy for you. It happens only when you click the button, with `curl`
+(which Windows 10 and later, macOS and most Linux desktops have), from the provider's page: a GPL build, fixed in the
+program and checked against its SHA-256 (50 to 150 MB, shown on the button). It is kept in
+the data folder of the program, and an FFmpeg of your own is always used first. Settings can remove it again.
+
 **3. Install Flight Replay.** The releases are not signed, so Windows and macOS warn the first time you open the
 program. This is expected; the steps below get past it.
 
@@ -117,13 +123,16 @@ Apple Silicon only (M1 and later).
 
 To remove it, drag `Flight Replay.app` to the Bin.
 
-When FFmpeg is installed in a place the program does not look in, choose its folder on the welcome step. The search
-order is in [docs/build.md](docs/build.md).
+When FFmpeg is installed in a place the program does not look in, choose its folder in Settings (the button at the
+top right). The search order is in [docs/build.md](docs/build.md).
 
 ## Use
 
-1. **Welcome.** It shows where FFmpeg was found and which encoders work. Choose the colour scheme. "Reset all settings…"
-   brings every setting back to the default, after asking you to confirm.
+1. **Welcome.** A summary: the version of the program, where FFmpeg was found and its version, which encoders work,
+   the colour scheme, the free disk space and the settings file. **Settings** (the button at the top right, there on
+   every step; Escape closes it) is where you install FFmpeg or choose its folder, choose the colour scheme, and
+   "Reset all settings…", which brings every setting back to the default after asking you to confirm. It opens by
+   itself, once, when FFmpeg is missing.
 2. **Input.** Drop the video on the window, or choose it. The `.osd` and `.srt` with the same name next to it are
    opened by themselves. Choose the OSD font: one of the list ("Built in"), or the file for your firmware, a
    `WS_..._24.png` sheet such as `WS_INAV_Europa_24.png`. The program carries the default font of INAV and a Betaflight
@@ -138,7 +147,8 @@ order is in [docs/build.md](docs/build.md).
    timing by eye.
 6. **Output.** Encoder, bitrate, 1440p, file name. You can render only a stretch first, as a quick test.
 7. **Render.** The summary and the progress. The queue is here too. Tick "Show the FFmpeg command before rendering"
-   to see, and copy, the commands that will run; it is off until you ask for it.
+   to see, and copy, the commands that will run; it is off until you ask for it. When the render has ended well and no
+   queue is being worked through, **Close** appears where Next is on the other steps, and closes the program.
 
 While a preview plays, the picture is shown at reduced quality (smaller, at most 30 frames per second) so that it keeps
 up. The video you render is not affected.

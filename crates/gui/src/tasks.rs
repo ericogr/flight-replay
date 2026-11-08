@@ -6,18 +6,21 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use flight_replay_core::cancel::CancelToken;
+use flight_replay_core::ffmpeg::install::{Build, install_here};
 use flight_replay_core::ffmpeg::{self, Tools};
 use flight_replay_core::font::{BundledFont, FontSheet, OsdFont};
 use flight_replay_core::osd::{OsdFile, join};
 use flight_replay_core::paths::{file_name, parent_folder};
-use flight_replay_core::render::{self, CancelToken, FlightDefaults, LeftOut, RenderPlan, Skipped};
+use flight_replay_core::render::{self, FlightDefaults, LeftOut, RenderPlan, Skipped};
 use flight_replay_core::srt::SrtFile;
 use flight_replay_core::synth::{SignalSet, SoundSettings, render_preview};
 use flight_replay_core::telemetry::{LoadOptions, Profile, Recording};
 use flight_replay_core::timeline::Timeline;
 use iced::Task;
+use iced::futures::channel::mpsc::UnboundedSender;
 
-use crate::message::{Message, RenderMessage};
+use crate::message::{InstallMessage, Message, RenderMessage};
 use crate::preview::{self, PreviewRequest};
 use crate::state::{
     FileKind, FolderQueue, FontSource, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, QueueItem,
@@ -151,6 +154,24 @@ pub fn decode_telemetry(path: PathBuf, osd: Arc<OsdFile>) -> Task<Message> {
     )
 }
 
+/// Opens a dialog of the system with `open` and waits for what the user chooses. The answer is the message that `then`
+/// makes from it (`None` is a dialog closed without a choice), wrapped in [`Message::Dialog`] so the program knows the
+/// dialog is closed. Every dialog goes through here.
+///
+/// `open` runs when the task is run, not when it is made: on some systems a dialog opens as soon as its future exists.
+fn ask<F>(
+    open: impl FnOnce() -> F + Send + 'static,
+    then: impl Fn(Option<PathBuf>) -> Message + Send + 'static,
+) -> Task<Message>
+where
+    F: Future<Output = Option<rfd::FileHandle>> + Send + 'static,
+{
+    Task::perform(
+        async move { open().await.map(|handle| handle.path().to_path_buf()) },
+        move |path| Message::Dialog(Box::new(then(path))),
+    )
+}
+
 /// Asks the user for a file of `kind`. `then` makes the message of the answer, which is `None` when the dialog was
 /// closed without choosing.
 pub fn pick_file(
@@ -158,18 +179,15 @@ pub fn pick_file(
     start_dir: Option<PathBuf>,
     then: impl Fn(Option<PathBuf>) -> Message + Send + 'static,
 ) -> Task<Message> {
-    Task::perform(
-        async move {
+    ask(
+        move || {
             let mut dialog = rfd::AsyncFileDialog::new()
                 .set_title(format!("Choose the {}", kind.label()))
                 .add_filter(kind.label(), kind.extensions());
             if let Some(dir) = start_dir {
                 dialog = dialog.set_directory(dir);
             }
-            dialog
-                .pick_file()
-                .await
-                .map(|handle| handle.path().to_path_buf())
+            dialog.pick_file()
         },
         then,
     )
@@ -177,22 +195,16 @@ pub fn pick_file(
 
 /// Asks the user for a folder.
 pub fn pick_folder(title: &'static str, then: fn(Option<PathBuf>) -> Message) -> Task<Message> {
-    Task::perform(
-        async move {
-            rfd::AsyncFileDialog::new()
-                .set_title(title)
-                .pick_folder()
-                .await
-                .map(|handle| handle.path().to_path_buf())
-        },
+    ask(
+        move || rfd::AsyncFileDialog::new().set_title(title).pick_folder(),
         then,
     )
 }
 
 /// Asks the user where to save the output.
 pub fn pick_output(suggested: PathBuf) -> Task<Message> {
-    Task::perform(
-        async move {
+    ask(
+        move || {
             let mut dialog = rfd::AsyncFileDialog::new()
                 .set_title("Save the video as")
                 .add_filter("MP4 video", &["mp4"]);
@@ -202,10 +214,7 @@ pub fn pick_output(suggested: PathBuf) -> Task<Message> {
             if let Some(name) = suggested.file_name() {
                 dialog = dialog.set_file_name(name.to_string_lossy());
             }
-            dialog
-                .save_file()
-                .await
-                .map(|handle| handle.path().to_path_buf())
+            dialog.save_file()
         },
         Message::OutputChosen,
     )
@@ -238,19 +247,39 @@ pub fn render_audio_preview(
     )
 }
 
+/// Runs `work` on its own thread and turns what it sends into the messages of a task. The task ends when `work` does.
+fn stream_from_thread<T: Send + 'static>(
+    work: impl FnOnce(&UnboundedSender<T>) + Send + 'static,
+) -> Task<T> {
+    let (sender, receiver) = iced::futures::channel::mpsc::unbounded();
+    std::thread::spawn(move || work(&sender));
+    Task::stream(receiver)
+}
+
 /// Runs a render and reports what it does.
 pub fn start_render(tools: Arc<Tools>, plan: RenderPlan, cancel: CancelToken) -> Task<Message> {
-    let (sender, receiver) = iced::futures::channel::mpsc::unbounded::<RenderMessage>();
-    std::thread::spawn(move || {
-        let events = sender.clone();
+    stream_from_thread(move |sender| {
         let result = render::render(&tools, &plan, &cancel, &mut |event| {
-            let _ = events.unbounded_send(RenderMessage::Event(event));
+            let _ = sender.unbounded_send(RenderMessage::Event(event));
         });
         let _ = sender.unbounded_send(RenderMessage::Done(
             result.map(Arc::new).map_err(|e| e.to_string()),
         ));
-    });
-    Task::stream(receiver).map(Message::Render)
+    })
+    .map(Message::Render)
+}
+
+/// Installs FFmpeg and reports how far it has come. `id` is the number of the install, which every report carries.
+pub fn install_ffmpeg(id: u64, build: &'static Build, cancel: CancelToken) -> Task<Message> {
+    stream_from_thread(move |sender| {
+        let result = install_here(build, &cancel, &mut |report| {
+            let _ = sender.unbounded_send(InstallMessage::Progress(report));
+        });
+        let _ = sender.unbounded_send(InstallMessage::Done(
+            result.map(|_| ()).map_err(|error| error.to_string()),
+        ));
+    })
+    .map(move |message| Message::Install(id, message))
 }
 
 /// Plans the videos of a folder, for the queue. `planned` are the outputs the queue already writes.

@@ -160,7 +160,7 @@ pub fn problems(step: Step, ctx: &Context) -> Vec<String> {
         Step::Welcome => {
             if !ctx.tools_found {
                 problems.push(
-                    "FFmpeg was not found. Install it, or choose the folder where it is."
+                    "FFmpeg is missing or too old. Open Settings to install it, or to choose its folder."
                         .to_owned(),
                 );
             }

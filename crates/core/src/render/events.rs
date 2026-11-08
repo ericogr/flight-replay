@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 EricoGR
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 /// A step of a render.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
@@ -49,27 +46,4 @@ pub enum Event {
     },
     /// Something the user should know.
     Warning(String),
-}
-
-/// Asks a render to stop. Cloning gives another handle to the same request.
-#[derive(Debug, Clone, Default)]
-pub struct CancelToken(Arc<AtomicBool>);
-
-impl CancelToken {
-    /// A token that has not been cancelled.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Asks the render to stop. It stops at the next frame or block, and removes what it wrote.
-    pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
-    }
-
-    /// Whether a stop was asked for.
-    #[must_use]
-    pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
-    }
 }

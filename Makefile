@@ -9,7 +9,7 @@ ARGS ?=
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build release run test fmt fmt-check lint deny check install clean golden fixtures notices dist app-bundle
+.PHONY: help build release run test fmt fmt-check lint cross-lint deny check install clean golden fixtures notices dist app-bundle
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -34,6 +34,20 @@ fmt-check: ## Fail if any file is not formatted
 
 lint: ## Clippy, with warnings as errors
 	$(CARGO) clippy --workspace --all-targets -- -D warnings
+
+# Code gated by `cfg(windows)`, `cfg(unix)` or `cfg(target_os = ...)` is only seen by the clippy of its own system, so
+# `make lint` can pass here and fail on the CI of another system. Each target needs `rustup target add <target>`.
+CROSS_TARGETS := x86_64-pc-windows-msvc aarch64-apple-darwin
+
+cross-lint: ## Clippy for the Windows and macOS targets, to find what only fails on their CI (nothing is run)
+	@for target in $(CROSS_TARGETS); do \
+		if rustup target list --installed | grep -qx "$$target"; then \
+			echo "clippy for $$target"; \
+			$(CARGO) clippy --workspace --all-targets --target $$target -- -D warnings || exit 1; \
+		else \
+			echo "skipping $$target: rustup target add $$target"; \
+		fi; \
+	done
 
 deny: ## Licenses, advisories, sources and duplicate crates (deny.toml)
 	$(CARGO) deny check

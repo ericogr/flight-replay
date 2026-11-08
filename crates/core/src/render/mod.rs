@@ -15,7 +15,7 @@ mod run;
 
 pub use availability::{Availability, Omission};
 pub use builder::{PlanInputs, build_plan, encoder_choice};
-pub use events::{CancelToken, Event, Stage};
+pub use events::{Event, Stage};
 pub use folder::{
     FlightDefaults, FlightError, FolderPlans, LeftOut, Planned, Skipped, plan_flight, plan_folder,
 };

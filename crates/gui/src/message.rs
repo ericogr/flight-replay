@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use flight_replay_core::ffmpeg::install::Progress;
 use flight_replay_core::ffmpeg::{EncoderInfo, Tools};
 use flight_replay_core::font::BundledFont;
 use flight_replay_core::render::{Event, Outcome};
@@ -96,6 +97,14 @@ pub enum RenderMessage {
     Done(Result<Arc<Outcome>, String>),
 }
 
+/// What an install of FFmpeg reports.
+#[derive(Debug, Clone)]
+pub enum InstallMessage {
+    Progress(Progress),
+    /// It ended: the error is the reason, in words for the user.
+    Done(Result<(), String>),
+}
+
 /// A message of the application.
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -109,6 +118,23 @@ pub enum Message {
     ChooseFfmpegFolder,
     FfmpegFolderChosen(Option<PathBuf>),
     Theme(ThemeChoice),
+    // the settings screen
+    /// What a dialog of the system answered: it is closed now. It holds the message that says what was chosen, which is
+    /// handled as if it had arrived by itself. Every dialog is asked for through `tasks`, which wraps the answer.
+    Dialog(Box<Message>),
+    OpenSettings,
+    CloseSettings,
+    /// Download and install FFmpeg, because the user asked for it.
+    InstallFfmpeg,
+    CancelInstall,
+    /// What the install with this number reports. What an install that was cancelled says is ignored.
+    Install(u64, InstallMessage),
+    /// Delete the copy of FFmpeg that the application installed.
+    RemoveInstalledFfmpeg,
+    /// Look for FFmpeg again.
+    RecheckFfmpeg,
+    OpenSettingsFolder,
+    OpenProjectPage,
     // files
     Browse(FileKind),
     FileChosen(FileKind, Option<PathBuf>),

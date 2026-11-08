@@ -29,6 +29,20 @@ pub enum ThemeChoice {
     Dark,
 }
 
+impl ThemeChoice {
+    /// Every choice, in the order the buttons show them.
+    pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
+
+    /// The name of the choice, on its button and in the summary.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::System => "System",
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+        }
+    }
+}
+
 /// What the window remembers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]

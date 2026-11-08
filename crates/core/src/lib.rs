@@ -11,6 +11,7 @@
 
 pub mod assets;
 pub mod audio;
+pub mod cancel;
 pub mod config;
 pub mod discover;
 pub mod display;

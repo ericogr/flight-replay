@@ -31,6 +31,8 @@ impl FlightReplay {
             return Task::none();
         }
         let ffmpeg_was_chosen = self.settings.ffmpeg_dir.is_some();
+        // A first run offers the settings screen when FFmpeg is missing, and so does the run after a reset.
+        self.settings_screen.offered = false;
         self.settings = Settings::default();
         self.preferences = Preferences::default();
         self.preset_name.clear();
@@ -192,6 +194,7 @@ impl FlightReplay {
 
     /// Asks the user where to save the output.
     pub(super) fn browse_output(&mut self) -> Task<Message> {
-        tasks::pick_output(PathBuf::from(self.output_path.trim()))
+        let suggested = PathBuf::from(self.output_path.trim());
+        self.ask(move || tasks::pick_output(suggested))
     }
 }

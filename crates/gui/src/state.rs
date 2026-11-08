@@ -7,11 +7,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use flight_replay_core::cancel::CancelToken;
 use flight_replay_core::ffmpeg::VideoInfo;
+use flight_replay_core::ffmpeg::install::Progress;
 use flight_replay_core::font::{BundledFont, OsdFont};
 use flight_replay_core::osd::{JoinPart, OsdFile};
 use flight_replay_core::paths::file_name;
-use flight_replay_core::render::{CancelToken, Outcome, RenderPlan, Stage, Window};
+use flight_replay_core::render::{Outcome, RenderPlan, Stage, Window};
 use flight_replay_core::srt::SrtFile;
 use flight_replay_core::synth::SignalSet;
 use flight_replay_core::telemetry::{Profile, Recording};
@@ -142,6 +144,58 @@ impl Preview {
         self.shown = (width, height);
         self.handle = Some(Handle::from_rgba(width, height, pixels));
     }
+}
+
+/// Whether a dialog of the system for choosing a file or a folder is open. It is a window of its own, so the window of
+/// the program is not frozen under it: this is what keeps a second click from opening a second dialog.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Dialog {
+    #[default]
+    Closed,
+    Open,
+}
+
+impl Dialog {
+    pub fn is_open(self) -> bool {
+        self == Self::Open
+    }
+}
+
+/// The settings screen.
+#[derive(Debug, Default)]
+pub struct SettingsScreen {
+    /// It is open, over the step.
+    pub open: bool,
+    /// It was opened by itself once because FFmpeg was missing. It is not opened that way again, so that closing it
+    /// without fixing the problem is not met with it coming back.
+    pub offered: bool,
+}
+
+/// The install of FFmpeg that the user asked for.
+pub enum InstallState {
+    /// None is going on.
+    Idle,
+    /// One is going on.
+    Running(InstallRun),
+    /// The last one failed, for this reason.
+    Failed(String),
+}
+
+/// An install that is going on.
+pub struct InstallRun {
+    /// Tells it from an earlier one that was cancelled and may still be winding down.
+    pub id: u64,
+    pub cancel: CancelToken,
+    /// How far it has come. `None` until the first report.
+    pub progress: Option<Progress>,
+}
+
+/// The free space of the disk where the output will go.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiskSpace {
+    /// The folder that was measured.
+    pub folder: PathBuf,
+    pub free_bytes: u64,
 }
 
 /// The state of a render.

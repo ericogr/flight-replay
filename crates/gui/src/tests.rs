@@ -12,6 +12,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use flight_replay_core::cancel::CancelToken;
+use flight_replay_core::display;
+use flight_replay_core::ffmpeg::install::{Build, Progress, Stage};
 use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools, probe};
 use flight_replay_core::font::{BundledFont, CharacterSize};
 use flight_replay_core::osd::Coverage;
@@ -25,10 +28,12 @@ use image::{Rgba, RgbaImage};
 use tempfile::TempDir;
 
 use crate::app::{FlightReplay, ToolsState};
-use crate::message::{Message, OsdEdit, OutputEdit, SoundEdit, SrtEdit, SyncEdit};
+use crate::message::{InstallMessage, Message, OsdEdit, OutputEdit, SoundEdit, SrtEdit, SyncEdit};
 use crate::preferences::ThemeChoice;
 use crate::sound_params::Param;
-use crate::state::{FileKind, FontSource, QueueStatus, RenderState, ScaleChoice};
+use crate::state::{
+    FileKind, FontSource, InstallRun, InstallState, QueueStatus, RenderState, ScaleChoice,
+};
 use crate::tasks;
 use crate::view;
 use crate::view::input::NO_FONT_HINT;
@@ -58,6 +63,18 @@ impl Harness {
             "the tools are found"
         );
         Some(harness)
+    }
+
+    /// A new application whose search for FFmpeg found nothing: the state of a machine that has none. It needs no
+    /// FFmpeg itself, so the tests of that state run everywhere.
+    fn without_ffmpeg() -> Self {
+        let dir = TempDir::new().expect("a temporary folder");
+        let app = FlightReplay::new(Some(dir.path().join("settings.toml")));
+        let mut harness = Self { app, dir };
+        harness.send(Message::ToolsLocated(Err(
+            "ffmpeg was not found: install FFmpeg, or set its folder in the settings".to_owned(),
+        )));
+        harness
     }
 
     /// Closes the application and starts it again, which reads the settings it saved.
@@ -219,9 +236,10 @@ fn the_colour_scheme_is_saved_with_the_settings() {
     let Some(mut app) = Harness::start() else {
         return;
     };
+    app.click("Settings");
     app.click("Light");
     assert_eq!(app.app.preferences.theme, ThemeChoice::Light);
-    app.snapshot("welcome-light");
+    app.snapshot("settings-light");
 
     let saved = std::fs::read_to_string(app.path("settings.toml")).expect("the settings are saved");
     assert!(saved.contains("light"), "{saved}");
@@ -288,6 +306,7 @@ fn every_step_is_walked_and_the_video_is_rendered() {
     app.click("Next");
     assert_eq!(app.app.step, Step::Render);
     app.snapshot("7-render");
+    assert!(!app.shows("Close"), "nothing to close the program for yet");
 
     app.click("Start the render");
     let RenderState::Finished(result) = &app.app.render else {
@@ -296,6 +315,12 @@ fn every_step_is_walked_and_the_video_is_rendered() {
     let outcome = result.as_ref().expect("the render succeeded");
     assert_eq!(outcome.output, output);
     app.snapshot("8-done");
+    // Where Next would be, the render is over, so the program can be closed. The click is only looked at, not sent:
+    // sending it would end the program that runs the test.
+    assert!(
+        matches!(app.clicks("Close").as_slice(), [Message::CloseRequested]),
+        "Close closes the window"
+    );
 
     let tools = Tools::locate(None).expect("the tools");
     let info = probe(&tools, &output).expect("the output is a video");
@@ -1196,4 +1221,500 @@ fn the_folder_of_ffmpeg_that_the_user_chose_is_remembered() {
     let saved = std::fs::read_to_string(app.path("settings.toml")).expect("the settings are saved");
     assert!(saved.contains("ffmpeg_dir"), "{saved}");
     assert!(saved.contains("my-ffmpeg"), "{saved}");
+}
+
+// ----- the settings screen
+
+#[test]
+fn the_settings_screen_opens_over_the_step_and_closes_back_to_it() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    app.send(Message::Next);
+    assert_eq!(app.app.step, Step::Input);
+
+    app.click("Settings");
+    assert!(app.app.settings_screen.open);
+    assert!(app.shows("Appearance") && app.shows("Reset all settings…"));
+    assert!(
+        !app.shows("Next"),
+        "the steps wait while the settings are open"
+    );
+    assert!(
+        app.clicks("2  Input").is_empty(),
+        "so does the bar of steps"
+    );
+    app.snapshot("settings-screen");
+
+    app.click("Close");
+    assert!(!app.app.settings_screen.open);
+    assert_eq!(
+        app.app.step,
+        Step::Input,
+        "the user is back where they were"
+    );
+    assert!(app.shows("Next"));
+
+    // The button of the title bar closes it as well, and Escape does the same.
+    app.click("Settings");
+    app.click("Settings");
+    assert!(!app.app.settings_screen.open);
+    app.send(Message::OpenSettings);
+    app.send(Message::CloseSettings);
+    assert!(!app.app.settings_screen.open);
+}
+
+#[test]
+fn the_welcome_step_summarises_the_machine() {
+    let Some(app) = Harness::start() else {
+        return;
+    };
+    for label in [
+        "Summary",
+        "Flight Replay",
+        "FFmpeg",
+        "Video encoders",
+        "Colour scheme",
+        "Free disk space",
+        "Settings file",
+    ] {
+        assert!(app.shows(label), "the summary has {label:?}");
+    }
+    let version = env!("CARGO_PKG_VERSION");
+    assert!(app.shows(&format!("version {version}")));
+    let tools = app.app.tools().expect("FFmpeg was found");
+    let expected = format!(
+        "{} · found on this system",
+        tools.ffmpeg_version().unwrap_or("version unknown")
+    );
+    assert!(
+        app.shows(&expected),
+        "the version and where it came from: {expected:?}"
+    );
+    assert!(app.app.disk.is_some(), "the free space was read");
+    assert!(
+        !app.shows("Open settings"),
+        "nothing is wrong, so nothing is offered"
+    );
+    app.snapshot("welcome-summary");
+}
+
+#[test]
+fn without_ffmpeg_the_settings_open_by_themselves_once() {
+    let mut app = Harness::without_ffmpeg();
+    assert!(
+        app.app.settings_screen.open,
+        "FFmpeg is missing, so the settings are offered"
+    );
+    assert!(matches!(app.app.tools, ToolsState::Missing(_)));
+    app.snapshot("settings-missing");
+
+    app.click("Close");
+    assert!(!app.app.settings_screen.open);
+    // Looking again and failing again does not bring the screen back over the user's work.
+    app.send(Message::ToolsLocated(Err("still missing".to_owned())));
+    assert!(!app.app.settings_screen.open);
+
+    // The welcome step says what is wrong and offers the way, and Next waits.
+    assert!(app.shows("Open settings"));
+    assert!(app.clicks("Next").is_empty(), "Next is switched off");
+    app.click("Open settings");
+    assert!(app.app.settings_screen.open);
+}
+
+#[test]
+fn a_reset_offers_the_settings_again_when_ffmpeg_is_still_missing() {
+    let mut app = Harness::without_ffmpeg();
+    app.send(Message::CloseSettings);
+    app.send(Message::OpenSettings);
+    app.click("Reset all settings…");
+    assert!(app.app.confirming_reset);
+    assert!(app.shows("Yes, reset everything"));
+    app.click("Cancel");
+    assert!(!app.app.confirming_reset);
+
+    app.click("Reset all settings…");
+    app.click("Yes, reset everything");
+    app.send(Message::CloseSettings);
+    app.send(Message::ToolsLocated(Err("still missing".to_owned())));
+    assert!(
+        app.app.settings_screen.open,
+        "after a reset the offer is made again"
+    );
+}
+
+#[test]
+fn the_settings_offer_to_install_ffmpeg_with_its_size_and_where_it_comes_from() {
+    let app = Harness::without_ffmpeg();
+    let Some(build) = Build::for_this_system() else {
+        assert!(
+            app.shows("Check again"),
+            "no build for this system, so only the other ways"
+        );
+        return;
+    };
+    let label = format!("Install FFmpeg ({})", display::size(build.download_bytes()));
+    assert!(app.shows(&label), "{label:?}");
+    // The click is only looked at, not sent: sending it would start a real download.
+    assert!(
+        matches!(app.clicks(&label).as_slice(), [Message::InstallFfmpeg]),
+        "the button asks for the install"
+    );
+}
+
+fn running(id: u64) -> (InstallRun, CancelToken) {
+    let cancel = CancelToken::new();
+    (
+        InstallRun {
+            id,
+            cancel: cancel.clone(),
+            progress: None,
+        },
+        cancel,
+    )
+}
+
+#[test]
+fn an_install_shows_how_far_it_has_come_and_ignores_what_is_not_its_own() {
+    let mut app = Harness::without_ffmpeg();
+    let (run, _cancel) = running(7);
+    app.app.install = InstallState::Running(run);
+    assert!(app.shows("Starting…"));
+
+    let progress = |stage, done| {
+        InstallMessage::Progress(Progress {
+            stage,
+            done,
+            total: 115_000_000,
+        })
+    };
+    app.send(Message::Install(
+        7,
+        progress(Stage::Downloading, 62_000_000),
+    ));
+    assert!(app.shows("Downloading FFmpeg… 62 MB of 115 MB"));
+    app.snapshot("settings-installing");
+    for (stage, text) in [
+        (Stage::Checking, "Checking the download…"),
+        (Stage::Unpacking, "Unpacking…"),
+        (Stage::Testing, "Testing FFmpeg…"),
+    ] {
+        app.send(Message::Install(7, progress(stage, 115_000_000)));
+        assert!(app.shows(text), "{text}");
+    }
+
+    // What another install says, one that was cancelled, changes nothing.
+    app.send(Message::Install(
+        6,
+        InstallMessage::Done(Err("old news".to_owned())),
+    ));
+    assert!(matches!(app.app.install, InstallState::Running(_)));
+}
+
+#[test]
+fn cancelling_an_install_stops_it_at_once_and_what_it_says_later_is_ignored() {
+    let mut app = Harness::without_ffmpeg();
+    let (run, cancel) = running(3);
+    app.app.install = InstallState::Running(run);
+
+    app.click("Cancel");
+
+    assert!(cancel.is_cancelled(), "the work is told to stop");
+    assert!(
+        matches!(app.app.install, InstallState::Idle),
+        "and the screen is free again"
+    );
+    app.send(Message::Install(
+        3,
+        InstallMessage::Done(Err("the install was cancelled".to_owned())),
+    ));
+    assert!(
+        matches!(app.app.install, InstallState::Idle),
+        "its last words are not shown"
+    );
+}
+
+#[test]
+fn a_failed_install_says_why_and_can_be_tried_again() {
+    let mut app = Harness::without_ffmpeg();
+    let (run, _cancel) = running(1);
+    app.app.install = InstallState::Running(run);
+
+    app.send(Message::Install(
+        1,
+        InstallMessage::Done(Err("the download failed: Could not resolve host".to_owned())),
+    ));
+
+    assert!(matches!(app.app.install, InstallState::Failed(_)));
+    assert!(app.shows("the download failed: Could not resolve host"));
+    if Build::for_this_system().is_some() {
+        assert!(app.shows("Try again"));
+    }
+    // The ways that do not need the network are still there.
+    assert!(app.shows("Check again"));
+    assert!(app.shows("Choose the folder of ffmpeg…"));
+}
+
+#[test]
+fn an_install_that_worked_makes_the_application_look_for_ffmpeg_again() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    // The state of a machine without FFmpeg, in the middle of an install.
+    app.send(Message::ToolsLocated(Err("missing".to_owned())));
+    let (run, _cancel) = running(2);
+    app.app.install = InstallState::Running(run);
+
+    app.send(Message::Install(2, InstallMessage::Done(Ok(()))));
+
+    assert!(matches!(app.app.install, InstallState::Idle));
+    assert!(
+        matches!(app.app.tools, ToolsState::Found(_)),
+        "the search ran again and found it"
+    );
+    assert!(app.app.notices.iter().any(|n| n == "FFmpeg was installed."));
+}
+
+#[test]
+fn no_install_starts_while_a_render_runs() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    app.app.render = RenderState::Running(crate::state::Running {
+        cancel: CancelToken::new(),
+        stage: flight_replay_core::render::Stage::Video,
+        audio: (0, 0),
+        video: (0, 0),
+        started: std::time::Instant::now(),
+        warnings: Vec::new(),
+        cancelling: false,
+    });
+
+    app.send(Message::InstallFfmpeg);
+    app.send(Message::RemoveInstalledFfmpeg);
+
+    assert!(
+        matches!(app.app.install, InstallState::Idle),
+        "nothing was started"
+    );
+}
+
+/// Clicks the real button and lets the real download run, as the user would. It needs the network, takes a while and
+/// writes in the data folder of the user, so it is run by hand, with that folder pointed somewhere else:
+///
+/// `FLIGHT_REPLAY_REAL_INSTALL=1 XDG_DATA_HOME=/tmp/fr-data cargo test -p flight-replay -- --ignored the_real_button`
+///
+/// (`XDG_DATA_HOME` is for Linux; the other systems have their own variable for the data folder.)
+#[test]
+#[ignore = "downloads FFmpeg: see the comment above"]
+fn the_real_button_installs_ffmpeg() {
+    if std::env::var_os("FLIGHT_REPLAY_REAL_INSTALL").is_none() {
+        eprintln!(
+            "skipping: set FLIGHT_REPLAY_REAL_INSTALL=1, and point the data folder somewhere else"
+        );
+        return;
+    }
+    let Some(build) = Build::for_this_system() else {
+        eprintln!("skipping: there is no build for this system");
+        return;
+    };
+    let mut app = Harness::without_ffmpeg();
+
+    app.click(&format!(
+        "Install FFmpeg ({})",
+        display::size(build.download_bytes())
+    ));
+
+    assert!(
+        matches!(app.app.install, InstallState::Idle),
+        "the install ended"
+    );
+    assert!(
+        app.app.managed_installed,
+        "there is a copy that the application installed"
+    );
+    let managed = Tools::managed_dir().expect("the data folder");
+    let suffix = std::env::consts::EXE_SUFFIX;
+    assert!(managed.join(format!("ffmpeg{suffix}")).is_file());
+    assert!(managed.join(format!("ffprobe{suffix}")).is_file());
+    assert!(managed.join("ABOUT.txt").is_file());
+    assert!(app.app.notices.iter().any(|n| n == "FFmpeg was installed."));
+    assert!(
+        matches!(app.app.tools, ToolsState::Found(_)),
+        "FFmpeg was looked for again and found"
+    );
+    // The screen offers to take the copy away.
+    app.send(Message::OpenSettings);
+    assert!(app.shows("Remove the FFmpeg that Flight Replay installed"));
+    app.click("Remove the FFmpeg that Flight Replay installed");
+    assert!(!app.app.managed_installed);
+    assert!(!managed.exists(), "the copy was removed");
+}
+
+#[test]
+fn looking_for_ffmpeg_again_does_not_open_again_what_was_opened_at_the_start() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    // The font used last is only taken up when the program starts. The user has none open now, and asking to look
+    // for FFmpeg again (as "Check again" and the end of an install do) must not bring it back.
+    app.app.settings.bundled_font = Some("inav-default".to_owned());
+    assert!(app.app.font.is_none());
+
+    app.send(Message::RecheckFfmpeg);
+
+    assert!(matches!(app.app.tools, ToolsState::Found(_)));
+    assert!(
+        app.app.font.is_none(),
+        "nothing was opened over the user's work"
+    );
+}
+
+#[test]
+fn what_is_opened_at_the_start_waits_for_the_first_time_ffmpeg_is_found() {
+    let Some(tools) = Tools::locate(None).ok().map(Arc::new) else {
+        eprintln!("skipping the GUI test: FFmpeg is not installed");
+        return;
+    };
+    let mut app = Harness::without_ffmpeg();
+    app.app.settings.bundled_font = Some("inav-default".to_owned());
+    assert!(app.app.font.is_none(), "without FFmpeg nothing was opened");
+
+    // FFmpeg turns up later, as when an install ends: now the font used last is taken up.
+    app.send(Message::ToolsLocated(Ok(tools)));
+
+    assert!(app.app.font.is_some());
+}
+
+// ----- the dialogs of the system
+
+#[test]
+fn only_one_dialog_of_the_system_is_open_at_a_time() {
+    let mut app = Harness::without_ffmpeg();
+    // The tasks that `update` gives back are not run: running one would open a real dialog.
+    let first = app.app.update(Message::Browse(FileKind::Video));
+    assert_eq!(first.units(), 1, "the first click opens the dialog");
+    assert!(app.app.dialog.is_open());
+
+    // The window is not frozen under the dialog, so the user can click again. Nothing more is opened, whichever
+    // button it is.
+    for other in [
+        Message::Browse(FileKind::Video),
+        Message::Browse(FileKind::Osd),
+        Message::AddOsd,
+        Message::BrowseOutput,
+        Message::ChooseFfmpegFolder,
+        Message::QueueAddFolder,
+    ] {
+        let name = format!("{other:?}");
+        assert_eq!(app.app.update(other).units(), 0, "{name} while one is open");
+    }
+
+    // The answer frees it, and what was chosen is taken in as if it had arrived by itself.
+    let folder = app.path("my-ffmpeg");
+    std::fs::create_dir_all(&folder).expect("a folder");
+    let _search = app
+        .app
+        .update(Message::Dialog(Box::new(Message::FfmpegFolderChosen(
+            Some(folder.clone()),
+        ))));
+    assert!(!app.app.dialog.is_open());
+    assert_eq!(
+        app.app.settings.ffmpeg_dir.as_deref(),
+        Some(folder.as_path())
+    );
+    assert_eq!(app.app.update(Message::BrowseOutput).units(), 1);
+}
+
+#[test]
+fn a_dialog_that_is_closed_without_a_choice_frees_the_buttons_too() {
+    let mut app = Harness::without_ffmpeg();
+    let _dialog = app.app.update(Message::BrowseOutput);
+    assert!(app.app.dialog.is_open());
+
+    let _ = app
+        .app
+        .update(Message::Dialog(Box::new(Message::OutputChosen(None))));
+
+    assert!(!app.app.dialog.is_open());
+    assert_eq!(app.app.update(Message::BrowseOutput).units(), 1);
+}
+
+#[test]
+fn the_buttons_that_open_a_dialog_wait_while_one_is_open() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    app.send(Message::Next);
+    assert_eq!(app.app.step, Step::Input);
+    assert!(!app.clicks("Choose…").is_empty(), "free to click");
+
+    let _dialog = app.app.update(Message::Browse(FileKind::Video));
+    assert!(app.clicks("Choose…").is_empty(), "the button waits");
+
+    // The settings screen has its own button for a folder.
+    app.send(Message::OpenSettings);
+    assert!(app.clicks("Choose another folder…").is_empty());
+
+    let _ = app.app.update(Message::Dialog(Box::new(Message::FileChosen(
+        FileKind::Video,
+        None,
+    ))));
+    assert!(!app.clicks("Choose another folder…").is_empty());
+    app.send(Message::CloseSettings);
+    assert!(!app.clicks("Choose…").is_empty(), "free again");
+}
+
+/// A render that ended well, with nothing in it but what the screen needs.
+fn a_render_that_ended_well() -> RenderState {
+    RenderState::Finished(Ok(Box::new(flight_replay_core::render::Outcome {
+        output: PathBuf::from("out.mp4"),
+        window: flight_replay_core::render::ResolvedWindow {
+            start_s: 0.0,
+            duration_s: 3.0,
+            partial: false,
+        },
+        mode: flight_replay_core::render::Mode::Overlay,
+        audio_stats: None,
+        warnings: Vec::new(),
+        check: None,
+        elapsed: std::time::Duration::from_secs(1),
+    })))
+}
+
+#[test]
+fn close_is_offered_only_when_all_the_work_is_done() {
+    let mut app = Harness::without_ffmpeg();
+    // FFmpeg is missing here, so the settings opened by themselves; the last step is looked at directly.
+    app.send(Message::CloseSettings);
+    app.app.step = Step::Render;
+
+    for (state, why) in [
+        (RenderState::Idle, "before a render"),
+        (
+            RenderState::Finished(Err("it failed".to_owned())),
+            "after a render that failed, where the way on is to try again",
+        ),
+    ] {
+        app.app.render = state;
+        assert!(!app.shows("Close"), "no Close {why}");
+    }
+
+    app.app.render = a_render_that_ended_well();
+    assert!(
+        matches!(app.clicks("Close").as_slice(), [Message::CloseRequested]),
+        "a render that ended well, with the queue idle"
+    );
+
+    // Between two videos of a queue the last render has ended, but the work has not.
+    app.app.queue.running = true;
+    assert!(
+        !app.shows("Close"),
+        "no Close while a queue is being worked through"
+    );
+
+    // The steps before the last one have Next, not Close.
+    app.app.queue.running = false;
+    app.app.step = Step::Output;
+    assert!(!app.shows("Close"));
 }

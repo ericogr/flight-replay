@@ -136,11 +136,15 @@ pub enum SettingsError {
     },
 }
 
+/// The folders of the application in the profile of the user.
+pub(crate) fn project_dirs() -> Option<ProjectDirs> {
+    ProjectDirs::from("io.github", "ericogr", "flight-replay")
+}
+
 /// The usual place of the settings file, in the configuration folder of the system.
 #[must_use]
 pub fn default_path() -> Option<PathBuf> {
-    ProjectDirs::from("io.github", "ericogr", "flight-replay")
-        .map(|dirs| dirs.config_dir().join("settings.toml"))
+    project_dirs().map(|dirs| dirs.config_dir().join("settings.toml"))
 }
 
 /// Reads settings. A file that does not exist gives the defaults. Keys that are missing keep their default.

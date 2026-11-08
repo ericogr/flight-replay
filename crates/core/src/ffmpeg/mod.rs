@@ -5,12 +5,13 @@
 //!
 //! Flight Replay does not link FFmpeg. It starts the programs as child processes and exchanges data with them
 //! through their standard streams and files. FFmpeg is not bundled: the user installs it, or points the
-//! application at it.
+//! application at it, or asks the application to install a copy ([`install`]).
 
 mod decode;
 mod encode;
 mod encoders;
 mod error;
+pub mod install;
 mod probe;
 mod process;
 mod progress;

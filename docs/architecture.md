@@ -16,7 +16,7 @@ draw), it goes in the core, where a command line can use it too.
 
 | Module | What it does |
 |---|---|
-| `ffmpeg` | Finds `ffmpeg` and `ffprobe`, reads what `ffprobe` says about a video, lists the encoders and tries each with a one-frame encode, decodes raw RGBA frames over a pipe (as stored, or already shrunk, which is how the previews that play are decoded), and runs the encoder process. FFmpeg is only ever a separate program. |
+| `ffmpeg` | Finds `ffmpeg` and `ffprobe`, reads what `ffprobe` says about a video, lists the encoders and tries each with a one-frame encode, decodes raw RGBA frames over a pipe (as stored, or already shrunk, which is how the previews that play are decoded), and runs the encoder process. FFmpeg is only ever a separate program. It skips a copy older than version 6. `ffmpeg::install` installs a copy on request (fixed builds, `curl`, SHA-256, unpacking, a test run, and a swap of the folder), see `docs/build.md`. |
 | `osd` | The `.osd` file (header, screens, firmware), the options for drawing it (position, masks), and `join`: several files of one video put on one timeline, with the coverage check. |
 | `font` | OSD font sheets: the layouts they come in, and the glyphs at the size of the video, or made smaller for a picture that is smaller than the video (the previews), with the cells kept exactly in proportion. An `OsdFont` is one sheet (a file) or several (a font that comes with the program, compiled in from `assets/osd-fonts/`), and the sheet nearest to the video is the one drawn. |
 | `srt` | The SRT file the goggles record, and the data in each line. |
@@ -28,7 +28,8 @@ draw), it goes in the core, where a command line can use it too.
 | `render` | `RenderPlan` (everything a render needs), `build_plan` (makes one from the files and the settings), `Availability` (what the files at hand allow, and why not), `plan_folder` (makes one for each video of a folder), `render` (does it, with progress and cancelling), and the check of the output. |
 | `config` | The settings of a render, and how to read and write settings files. |
 | `discover` | Finds the `.osd` and `.srt` next to a video, and the videos of a folder. Knows the names of the files Flight Replay writes. |
-| `paths`, `display` | Small helpers for paths and for writing times in messages, so every place does it the same way. |
+| `cancel` | `CancelToken`: how the caller asks long work (a render, the install of FFmpeg) to stop. It lives apart from both so that neither depends on the other. |
+| `paths`, `display` | Small helpers for paths (including the free space of a disk and the margin a job needs) and for writing times and sizes in messages, so every place does it the same way. |
 
 Errors in the core are types (`thiserror`), so a caller can tell them apart. Text for the user is written where an
 error is shown.
@@ -87,16 +88,27 @@ crates/gui/src
 │   ├── files.rs      the video and the files that go with it
 │   ├── options.rs    what to draw, the timing, the sound and the output
 │   ├── persist.rs    writing the settings file whenever a choice changes
+│   ├── settings.rs   the settings screen: opening it, installing FFmpeg from it, and what the screens show about the
+│   │                 machine (the free space, the copy of FFmpeg that was installed)
 │   ├── picture.rs    the preview picture
 │   ├── play.rs       a preview that plays (the sound step with its sound, the OSD and SRT steps without), and the
 │   │                 picture of it, a stream paced by the clock of the sound or of the computer
 │   ├── rendering.rs  the plan and running a render
 │   └── queue.rs      several videos, one after the other
-└── view/           one file for each step, and the pieces they share
+└── view/           one file for each step, the settings screen (`settings.rs`), and the pieces they share
 ```
 
 Things worth knowing:
 
+- A dialog of the system for choosing a file or a folder is a window of its own, so the window of the program is not
+  frozen under it. `FlightReplay::ask` opens one only if none is open (`dialog`), the buttons that open one wait, and
+  every dialog is asked for through `tasks::ask`, which wraps the answer in `Message::Dialog`: handling that message is
+  what closes the dialog, so a new dialog cannot forget to.
+- The settings screen is not a step: `settings_screen.open` draws it over the current step, which keeps its state. An
+  install of FFmpeg runs on a thread and reports under its own number, so what a cancelled install says while it winds
+  down is not taken for the next one. What the program opens by itself when it starts (the video given on the command
+  line, the font used last) waits for the first time FFmpeg is found and is opened once (`Startup`), so looking for
+  FFmpeg again never opens it over what the user has done.
 - `update` is one `match` with an arm for every message and no wildcard, so adding a message that nothing handles
   does not compile.
 - A handler does not do slow work. It starts a task (`tasks.rs`) and returns; the task answers with a message

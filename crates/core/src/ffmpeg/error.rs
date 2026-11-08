@@ -13,6 +13,19 @@ pub enum FfmpegError {
         tool: &'static str,
     },
 
+    /// A program was found, but it is older than the application supports. A copy that works is still looked for
+    /// in the other folders, so this is only the answer when there is none.
+    #[error(
+        "{tool} {version} is too old: FFmpeg {} or newer is needed. Install a newer one, or choose the folder of one",
+        super::tools::MIN_MAJOR_VERSION
+    )]
+    TooOld {
+        /// Name of the program (`ffmpeg` or `ffprobe`).
+        tool: &'static str,
+        /// The version it reports, such as `4.4.2`.
+        version: String,
+    },
+
     /// The program could not be started.
     #[error("could not start {tool}: {source}")]
     Spawn {

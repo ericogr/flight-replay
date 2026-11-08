@@ -27,7 +27,9 @@ your desktop, which is what opens the file dialogs. The sound preview needs ALSA
 Install FFmpeg on the other systems with `winget install Gyan.FFmpeg` (Windows) or `brew install ffmpeg` (macOS).
 Flight Replay looks for `ffmpeg` and `ffprobe` in this order: the folder chosen in the application (or the
 `FLIGHT_REPLAY_FFMPEG` variable), `PATH`, the usual install folders (`/opt/homebrew/bin`, `/usr/local/bin`,
-`C:\ffmpeg\bin`, the WinGet links folder), and the folder of the executable.
+`C:\ffmpeg\bin`, the WinGet links folder), the folder of the executable, and last the `ffmpeg` folder in the data
+folder of the application. A copy older than version 6 is skipped and the search goes on; when all of them are too
+old, step 1 says so. A build made from git, whose version cannot be read, is accepted.
 
 ## The Makefile
 
@@ -41,6 +43,7 @@ Flight Replay looks for `ffmpeg` and `ffprobe` in this order: the folder chosen 
 | `test` | The tests. Those that need FFmpeg print a message and pass when it is not installed |
 | `fmt`, `fmt-check` | Format the code, or fail if it is not formatted |
 | `lint` | Clippy, with warnings as errors |
+| `cross-lint` | The same clippy for the Windows and macOS targets (each needs `rustup target add <target>`; nothing is run). Code gated by `cfg(windows)`, `cfg(unix)` or `cfg(target_os = ...)` is only linted by its own system, so run this after touching any |
 | `deny` | Licenses, advisories and sources of the dependencies (`cargo-deny`) |
 | `check` | All of the above. Run it before each commit |
 | `dist` | Archive of the release build for this system, and `SHA256SUMS`, in `dist/`. `make dist SOURCE=1` adds the source archive |
@@ -97,5 +100,34 @@ them, for these reasons:
 - The hardware encoders (NVENC, QSV, AMF, VideoToolbox, VAAPI) work only with a build that has them and a driver that
   matches the machine. The build of the system's package manager is the one that matches.
 - Every system has a maintained FFmpeg package.
+- It would make each download about 100 MB larger for the people who already have their own FFmpeg, and each security
+  fix of FFmpeg would be a release of this project.
+
+### Installing a copy on request
+
+For a person who has no FFmpeg, the program can install one: **Settings, Install FFmpeg**. Nothing is fetched until
+that click. The program runs `curl` to get one build for the system, fixed in the code with its address, size and
+SHA-256 (`crates/core/src/ffmpeg/install/builds.rs`):
+
+The code is the source of truth (`builds.rs`); this table is a copy of it.
+
+| System | Build | Package |
+|---|---|---|
+| Windows, x86-64 | gyan.dev, release "essentials" 9.0.2 | one `.zip`, 115 MB |
+| macOS, Apple Silicon | ffmpeg.martin-riedl.de, release 9.0.2 | two `.zip` (`ffmpeg`, `ffprobe`), 28 MB each |
+| Linux, x86-64 | BtbN FFmpeg-Builds, GPL, automatic build of 2026-10-31 (9.0.2) | one `.tar.xz`, 153 MB |
+
+Each was opened and checked by hand: it is GPL v3, has `libx264` and `libx265`, and was not built with
+`--enable-nonfree` (a build with it cannot be redistributed). The program checks the SHA-256 of what it downloaded,
+takes out only `ffmpeg` and `ffprobe`, runs both once, and only then puts them in the `ffmpeg` folder of its data
+folder (`~/.local/share/flight-replay/ffmpeg` on Linux). It moves the old copy aside to do so, and puts it back if the
+swap fails, so a failure or a cancel leaves what was there before. The
+folder also gets `ABOUT.txt`, with where the files came from, and the license text when the package has it. The
+project does not host or redistribute the builds: the user gets them from the provider, who gives the source.
+
+This copy is the last place searched, so an FFmpeg of your own always wins. To use a newer build, check the new file
+the same way (license, `--enable-nonfree`, encoders), then change the address, size and SHA-256 in `builds.rs`. The
+providers do not promise to keep their addresses: BtbN keeps the last build of each month for two years, which is why
+a month-end build is used; when an address goes away, the install says so and the other ways stay on the same screen.
 
 If you want a portable folder, put `ffmpeg` and `ffprobe` next to the executable. They are found there.

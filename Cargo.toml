@@ -7,6 +7,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"
+repository = "https://github.com/ericogr/flight-replay"
 authors = ["EricoGR"]
 
 [workspace.dependencies]
@@ -27,6 +28,11 @@ thiserror = "2"
 toml = "1"
 tempfile = "3"
 tracing = "0.1"
+sha2 = "0.10.9"
+tar = "0.4.46"
+zip = { version = "9.4.0", default-features = false, features = ["deflate-flate2"] }
+# Unpacks .tar.xz (the Linux build of FFmpeg). Built from its bundled source: no system library or bindgen is needed.
+liblzma = { version = "0.4.9", default-features = false, features = ["static"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [workspace.lints.rust]

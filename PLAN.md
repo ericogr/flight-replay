@@ -76,13 +76,14 @@ options the user chooses at the end.
 | D3 | Configuration format | TOML (`serde` + `toml`). fpv-motorsound uses YAML, but `serde_yaml` is deprecated. | default |
 | D4 | Telemetry for the sound | **INAV and Betaflight.** INAV first (P4). Betaflight after the recordings are available (P4b). | decided |
 | D5 | Command-line interface | **None in v1.** The core is designed so a CLI can be added later as a separate crate. No CLI code now. | decided |
-| D6 | FFmpeg | External program, found on the system, in v1. Bundling is allowed under GPL-3.0. Decided in P9: not bundled in v0.1.0 (see `docs/build.md`). A folder next to the executable is searched, so a portable folder works. | default, confirmed in P9 |
+| D6 | FFmpeg | External program, found on the system, in v1. Bundling is allowed under GPL-3.0. Decided in P9: not bundled in v0.1.0 (see `docs/build.md`). A folder next to the executable is searched, so a portable folder works. After v0.1.0 (D13) the program can also install a copy on request. Bundling stays out: it would make every download about 100 MB larger for the users who already have an FFmpeg, and make each FFmpeg security fix a release of this project | default, confirmed in P9 and again in P10 |
 | D7 | Test fixtures | **Committed.** Trimmed clips of a few seconds, each with a matching `.osd` and `.srt` slice and the font, under `tests/fixtures/`. Full recordings stay local. GPS coordinates in the committed `.osd` are replaced by fake open-ocean ones. Rules in section 10.4. | decided |
 | D8 | Names | **Flight Replay** as the product name everywhere. Each context uses its own convention (table in section 5.0). | decided |
 | D9 | Output container | MP4 only in v1. | default |
 | D10 | Input video already has audio | Error by default, with a `replace` option (like `--replace-audio` in fpv-motorsound). | default |
-| D11 | Update check at startup (walksnail-osd-tool has one) | Not in v1. It needs network access. | default |
+| D11 | Update check at startup (walksnail-osd-tool has one) | Not in v1. It needs network access. The program does nothing on its own over the network: the only use of the network is the install of FFmpeg that the user asks for (D13) | default |
 | D12 | Audio preview in the GUI | Yes, with `rodio`. Needs ALSA headers on Linux at build time. | default |
+| D13 | Installing FFmpeg from the program | **Yes, only when the user clicks a button on the settings screen.** The program downloads one fixed build for the system (Windows x86-64, macOS Apple Silicon, Linux x86-64), checks its SHA-256, unpacks `ffmpeg` and `ffprobe`, runs them once, and keeps them in its data folder. It never fetches anything by itself. The download is done by running `curl`, so the program has no network or TLS code and the proxy and the certificates of the system are used. The build is not redistributed by this project: the user gets it from the provider, who offers the source. It is the last place searched, so an FFmpeg of the user always wins. Chosen in P10. The builds and how they were checked are in `crates/core/src/ffmpeg/install/builds.rs` | decided in P10 |
 
 ## 4. Licensing and reuse
 
@@ -112,7 +113,8 @@ options the user chooses at the end.
   each one as an exception with its reason. The exceptions are reviewed on each iced update.
 - **Fonts** are data files. They ship with their own license text (SIL OFL 1.1), and are not compiled into code.
 - **FFmpeg** is not bundled in v1. Its build options decide its license, so a bundled build needs its own
-  notice and source offer, decided in P9.
+  notice and source offer, decided in P9. The copy that the program installs on request (D13) is a GPL v3 build that
+  someone else made, downloaded by the user's own click; `ABOUT.txt` and the license text are kept next to it.
 - **Notices:** `NOTICE` (hand-written, lists the origins above). `THIRD_PARTY_NOTICES.md` is generated for the
   crates with `cargo about` (`make notices`).
 
@@ -190,7 +192,7 @@ Where each module comes from. What each one does is in `docs/architecture.md`.
 | `config` | adapted from walksnail `config.rs` (confy replaced by TOML); defaults from fpv-motorsound `internal/config` |
 | `render` | adapted from walksnail `ffmpeg/render.rs`; ported from fpv-motorsound `internal/pipeline`; `builder` and `folder` are new |
 | `discover` | adapted from walksnail and from fpv-motorsound `internal/pipeline/discover.go` |
-| `paths`, `display` | new |
+| `paths`, `display`, `cancel` | new |
 
 A Betaflight table and rules (phase P4b) would be a `telemetry::betaflight` module next to `inav`.
 
@@ -270,6 +272,8 @@ checked again with `cargo deny`.
 | Logging | `tracing`, `tracing-subscriber` | MIT |
 | Parallel compositing | `rayon` | MIT OR Apache-2.0 |
 | Temporary files | `tempfile` | MIT OR Apache-2.0 |
+| Install of FFmpeg (P10): SHA-256, `.zip`, `.tar.xz` (Linux only) | `sha2`, `zip`, `tar` and `liblzma` (built from its bundled source, no system library) | MIT OR Apache-2.0 |
+| Install of FFmpeg (P10): the download | the `curl` program (Windows 10 and later, macOS and most Linux desktops have it), started as a process | not a dependency |
 | Snapshot tests (optional) | `insta` | Apache-2.0 |
 | Developer tools, not dependencies | `cargo-deny`, `cargo-about` | MIT OR Apache-2.0 |
 
@@ -284,7 +288,7 @@ reads the state.
 
 | # | Step | Content | Can be skipped |
 |---|------|---------|----------------|
-| 1 | Welcome and environment | Are `ffmpeg` and `ffprobe` found? Versions. Encoders detected. | no |
+| 1 | Welcome and environment | A summary: the version of the program, whether FFmpeg was found and its version and origin, the encoders that work, the colour scheme, the free disk space and the settings file. Everything that can be changed is on the settings screen | no |
 | 2 | Input | Pick or drag the video. Auto-discover `.osd`, `.srt` and font. Video information. Firmware from the `.osd`. Warnings for missing files. | no |
 | 3 | Video overlay | Enable OSD. Font. Position, centring, masks (drawn on the preview), latency correction. Frame preview with a time slider. | yes (audio only) |
 | 4 | SRT data | Enable SRT. Fields. Position. Size. Preview. | yes |
@@ -327,8 +331,10 @@ Rules:
   runner where one is available. CI runs the tests on Linux, Windows and macOS.
 - **FFmpeg discovery order:** (1) the path set in the settings or in `FLIGHT_REPLAY_FFMPEG`, (2) `PATH`,
   (3) well-known locations: `/opt/homebrew/bin`, `/usr/local/bin`, `C:\ffmpeg\bin`, the WinGet links folder,
-  (4) the folder next to the executable. A macOS app started from Finder does not inherit the shell `PATH`,
-  which is why step 3 exists.
+  (4) the folder next to the executable, (5) the `ffmpeg` folder in the data folder of the program, where the install
+  of D13 puts its copy. A copy older than version 6 is skipped and the search goes on; a build made from git, whose
+  version cannot be read, is accepted. A macOS app started from Finder does not inherit the shell `PATH`, which is
+  why step 3 exists.
 - **Windows:** release builds use `windows_subsystem = "windows"`, so no console window opens. Spawned
   processes use `CREATE_NO_WINDOW`. Paths are `PathBuf` and `OsString`, and no command goes through a shell.
   Tests cover file names with spaces and non-ASCII characters. The executable has the Flight Replay icon and
@@ -357,6 +363,7 @@ GNU Make, in the same style as the fpv-motorsound Makefile (`make help` lists th
 | `fmt` | Format with rustfmt |
 | `fmt-check` | Fail if formatting differs |
 | `lint` | `cargo clippy --workspace --all-targets -- -D warnings` |
+| `cross-lint` | The same for the Windows and macOS targets, so `cfg`-gated code is linted before CI sees it (added in P10) |
 | `deny` | `cargo deny check` (licenses, advisories, sources, duplicates) |
 | `check` | `fmt-check`, `lint`, `test`, `deny`. Run before every commit |
 | `fixtures` | Cut the trimmed fixture clips from the local recordings (`xtask`). Explicit only |
@@ -380,6 +387,10 @@ list. The core crate also sets `missing_docs`.
 - `make check` passes before each commit.
 - No AI co-author trailers in commits or pull requests.
 - A ported file keeps its origin header (section 4.2) in every commit that touches it.
+- Every change ends with the review in "Before you call a change done" of `CONTRIBUTING.md` (modules depend one way, no
+  duplicated behaviour, clean code, tests only where there is logic, `make check` and `make cross-lint`, the
+  documentation, and an honest account of what was not verified). `AGENTS.md` tells coding agents to do it on their
+  own, and `CLAUDE.md` imports `AGENTS.md`.
 
 ### 9.3 CI and release
 
@@ -468,6 +479,7 @@ These use the original tools as oracles. Their outputs are data, so comparing ag
 | P7 GUI wizard | Seven steps, persistence, previews, audio preview, drag and drop, light and dark themes, desktop entry and app bundle | Wizard state tests pass. Manual walk-through on three OSes |
 | P8 Batch and joined videos | Queue of several videos in the GUI. One video with several `.osd` files | A queue of fixtures renders. A joined fixture passes the coverage check |
 | P9 Release | Archives, `.app` bundle, Windows zip (installer later), release workflow, source archive, documentation. FFmpeg bundling decision (D6) | Tagged `v0.1.0` installs and runs on three OSes |
+| P10 Settings and the install of FFmpeg | A settings screen reached from every step (FFmpeg, colour scheme, reset, about), opened by itself once when FFmpeg is missing. A summary on the welcome step. The install of FFmpeg on request (D13). A version check of FFmpeg | The install runs on a real system from the button. `make check` passes on the three OSes. The install is run on Windows and macOS |
 
 Dependencies: P0 → P1 → (P2, P3 and P4 in parallel) → P4b (when the recordings are ready) → P5 → P6 → P7 → P8 → P9.
 P4b does not block P5, P6 or P7. Until it is done, Betaflight files get the overlay and the SRT, and no sound.
@@ -634,6 +646,18 @@ phase that is not started yet are not blocked by anything else unless the text s
 - [x] Tag `v0.1.0` (at `ac7e749`): https://github.com/ericogr/flight-replay/releases/tag/v0.1.0
 - [ ] Install and run on three OSes: none of the released archives was installed and run yet (a local Linux build was, earlier)
 
+**P10: settings screen and the install of FFmpeg**
+
+- [x] A copy of FFmpeg older than version 6 is skipped, and step 1 says why when only old ones are found; builds made from git are accepted (unit tests)
+- [x] Settings screen from every step (button at the top right, Escape closes it), opened by itself once when FFmpeg is missing (GUI tests)
+- [x] The colour scheme, the FFmpeg folder and the reset moved from the welcome step to the settings screen; the welcome step is a summary
+- [x] Builds fixed for Windows x86-64, macOS Apple Silicon and Linux x86-64, each with its address, size and SHA-256. Checked by hand: the hashes match the providers', each is GPL v3 with `libx264` and `libx265` and without `--enable-nonfree`, and the archives unpack as the manifest says (the three real archives, on Linux)
+- [x] Install on Linux, from the button, over the real network: download, checksum, unpack, run, put in place, find, remove (`the_real_button_installs_ffmpeg`, run by hand)
+- [x] The install cancels at once on the screen, keeps the old copy on every failure, and leaves no work folder (unit tests with a downloader in memory and a real `curl` against a local server)
+- [ ] Install run on Windows: the archive unpacks, but `ffmpeg.exe` was not run from this install
+- [ ] Install run on macOS: the archive unpacks, but nobody has run the downloaded `ffmpeg` on a Mac, or seen what Gatekeeper says
+- [ ] Hardware encoders of the downloaded builds in use on a machine that has the hardware (they are compiled in; only `libx264` and `libx265` were tried)
+
 ## 12. Risks
 
 | Risk | Impact | Mitigation |
@@ -650,6 +674,9 @@ phase that is not started yet are not blocked by anything else unless the text s
 | An encoder is listed but fails | Render error | Verify with a test encode during detection. Show FFmpeg's error text |
 | FFmpeg not found on macOS or Windows | Failure on first run | Discovery list, a path in settings, and a clear message in step 1 |
 | No audio device, or no ALSA | No audio preview | Disable the preview with a message. Rendering is not affected |
+| The address of a fixed FFmpeg build goes away (the providers do not promise to keep them) | The install of a version of the program fails with "404" | The failure is said in words and the other ways (package manager, choosing a folder) stay on the same screen. Check the three addresses and hashes from time to time, and move to a newer build each release. A scheduled CI check is a possible next step |
+| `curl` is not on the machine (an old Windows, a minimal Linux) | The install button fails | The error says so and points to the package manager and to choosing a folder |
+| A provider's build is replaced by a bad one | Malicious FFmpeg | The SHA-256 is fixed in the code, so a changed file is refused. The first choice of each build was checked by hand (license, `--enable-nonfree`, encoders); a new build must be checked the same way |
 | Overlay and sound drift apart | Wrong timing | One `timeline` module used by both. Probe check across both |
 | The fixture picture shows the place (the raw recording is an aerial view of a city) | The location leaks even though the `.osd` is anonymized | The owner decides per clip (section 14). A clip with no landmarks, or a cropped clip, can be used |
 | The shape of the track identifies the place, even after a translation | The location can be guessed from the path | Accept it, or add a rotation around the new point (distances are kept) |
@@ -676,7 +703,7 @@ These do not block P0. The defaults are used unless the owner changes them.
 2. **Copyright line** for `NOTICE` and new files: `Copyright (C) EricoGR` (**default**).
 3. **macOS bundle identifier:** `io.github.ericogr.flight-replay` (**default**).
 4. **Defaults taken** for D3 (TOML), D6 (external FFmpeg), D9 (MP4), D10 (`replace` option), D11 (no update check)
-   and D12 (`rodio` preview), unless the owner changes them.
+   and D12 (`rodio` preview), unless the owner changes them. D13 (install of FFmpeg on request) was decided by the owner.
 5. **Fixture clip choice.** Decided: the owner accepts the aerial view of a city in the picture of the clip.
 
 ## 15. Revision history
@@ -845,3 +872,66 @@ These do not block P0. The defaults are used unless the owner changes them.
   - Not done: the settings are not checked for `NaN` (a hand-written `f_max_hz = nan` passes `validate` and makes a
     silent sound); the sliders cannot produce one, and a check of every field would be a long list for a case that
     needs the file to be edited by hand.
+- Revision 15, 2026-11-08: the settings screen and the install of FFmpeg (P10, D13).
+  - Asked for by the owner: a user who has no FFmpeg should not have to leave the program to install one. FFmpeg is
+    still not bundled (the owner: a large binary is no good for those who already have theirs); the program installs a
+    copy only when asked, and an FFmpeg of the user always wins over it.
+  - Core: `Tools::locate` now skips an FFmpeg older than 6 (it took the first one that ran, so an old one on the
+    `PATH` hid a good one further down) and `FfmpegError::TooOld` says why. `Tools` keeps the version. The new module
+    `ffmpeg::install` has the fixed builds (`builds`), the download with `curl` (`fetch`), the unpacking (`unpack`;
+    only the files named in the build, under names from the build, so a path in the archive cannot write elsewhere)
+    and the flow in `mod.rs`: free space, download, SHA-256, unpack, run the programs, and put them in place by
+    renaming a work folder. A failure or a cancel leaves the old copy and no work folder.
+  - GUI: a settings screen (`view/settings.rs`, `app/settings.rs`) reached by a button at the top right of every
+    step, closed by its own button or Escape; the steps wait while it is open. It holds FFmpeg (status, version,
+    origin, the install button with a progress bar and cancel, the folder, look again, remove the installed copy),
+    the colour scheme, the reset and an About. It opens by itself once when FFmpeg is missing or too old, and again
+    after a reset. The welcome step is a summary. The install runs on its own thread, reports with its own number so
+    that a cancelled one cannot be mistaken for the next, and is refused while a render runs.
+  - Sources: the Linux and macOS builds that an earlier look suggested were checked by opening the files: the Linux
+    build of the macOS provider has `--enable-nonfree` (not redistributable) and no hardware encoders, so the Linux
+    build is BtbN's, from a month-end automatic build because only those are kept (two years).
+  - Checked: 22 tests of the install (a downloader in memory, a real `curl` against a server on this machine, a real
+    `.tar.xz`, programs that are scripts), the three real archives unpacked as the builds say, and the whole path from
+    the button over the real network on Linux (`the_real_button_installs_ffmpeg`, 17 s, run by hand).
+  - Not checked: running the downloaded programs on Windows and macOS, the hardware encoders of the builds, and the
+    first-run warnings of those systems for a file that was downloaded by `curl`.
+- Revision 16, 2026-11-08: review of P10 for coupling, duplication and clean code. Fixed:
+  - `ffmpeg::install` reached into `render` for `CancelToken` while `render` uses `ffmpeg`: a cycle between the two.
+    The token is now its own module, `cancel`, and every user imports it from there.
+  - A bug that the settings screen made easy to hit: every time FFmpeg was found again (a folder chosen, "Check
+    again", the end of an install) the program opened again the video given on the command line and the font used
+    last, over what the user had opened since. They are now opened once, the first time FFmpeg is found (`Startup`).
+    Two tests; the first was checked to fail without the fix.
+  - The swap of the installed folder deleted the old copy before renaming the new one, so a failure in between (on
+    Windows, a running `ffmpeg.exe`) would lose both. The old copy is now moved aside and put back if the rename
+    fails (test), and the error says the copy may be in use.
+  - Duplicated behaviour: the free-space check and its 5 % margin were written twice (render and install), now
+    `paths::free_space` and `paths::has_room` (the render check also works when the output folder does not exist
+    yet); sizes in MB were formatted in the core and in the GUI, now `display::size`; the loops that unpack a `.zip` and
+    a `.tar.xz` are one (`Taking`); `runs()` ran `ffmpeg -version` again after an encode had just worked, for nothing,
+    and duplicated `check()` (removed, one process less for each encoder tried); the thread-and-channel code of a
+    render and of an install is one helper (`stream_from_thread`); the colour scheme names, and where the FFmpeg in
+    use came from, are typed (`ThemeChoice::label`, `ToolsOrigin`) instead of strings built by hand and lower-cased;
+    the project address is read from the manifest.
+  - Less to carry: `zip` needs only `deflate-flate2` (the program reads zips, the `deflate` feature added a
+    compressor, `zopfli`); the types of the downloader are not part of the public API of the core.
+  - Tests dropped as not worth keeping: one that repeated the `cfg!` of the code it tested, and the one for the
+    helper that formatted sizes in the GUI (moved to the core, with its test).
+  - Process: the review itself is now written down, so it does not have to be asked for each time: the checklist
+    "Before you call a change done" in `CONTRIBUTING.md`, `AGENTS.md` (which tells a coding agent to do it without
+    being asked) and `CLAUDE.md` (which imports `AGENTS.md`). `make cross-lint` lints the Windows and macOS targets from
+    any system: running it found two warnings that only the Windows CI would have shown.
+- Revision 17, 2026-11-08: only one dialog of the system at a time. The file dialogs are asynchronous (`rfd`), so the
+  window is not frozen under them and a second click opened a second dialog. `FlightReplay::ask` refuses to open one
+  while another is open, the buttons that open one wait, and `tasks::ask` (the one place that opens a dialog) wraps the
+  answer in `Message::Dialog`, whose handling closes it. The three pickers repeated the same code and now share it,
+  and the per-kind "is it being read" flag of the file rows is `Busy::of`. The dialog is still built when the task is
+  run, not when it is made: on some systems it opens as soon as its future exists. Three tests; each guard was undone
+  once to see its test fail. Not checked: a real dialog on a real desktop (the tests do not open one).
+- Revision 18, 2026-11-08: the last step ends with a Close button. Where the other steps have Next, the last one had
+  an empty space; once a render has ended well and no queue is being worked through (`FlightReplay::work_is_done`), it
+  holds **Close**, which sends the same message as the close button of the window. It is not offered before a render,
+  while one runs, after one that failed (the way on is "Try again") or between two videos of a queue. A test for each
+  case, with each rule undone once to see it fail.
+

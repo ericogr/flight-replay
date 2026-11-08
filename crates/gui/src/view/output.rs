@@ -122,7 +122,10 @@ fn file(app: &FlightReplay) -> Element<'_, Message> {
                 text_input("Where to save the video", &app.output_path)
                     .on_input(|t| Message::Output(OutputEdit::Path(t)))
                     .width(Length::Fill),
-                action("Choose…", Some(Message::BrowseOutput)),
+                action(
+                    "Choose…",
+                    (!app.dialog.is_open()).then_some(Message::BrowseOutput)
+                ),
             ]
             .spacing(8),
         ),

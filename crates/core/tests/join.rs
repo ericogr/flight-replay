@@ -9,11 +9,12 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use flight_replay_core::cancel::CancelToken;
 use flight_replay_core::ffmpeg::{Tools, probe};
 use flight_replay_core::font::CharacterSize;
 use flight_replay_core::osd::{Coverage, OsdFile, OsdOptions, join};
 use flight_replay_core::render::{
-    CancelToken, EncoderChoice, OsdLayer, OutputPlan, Overwrite, RenderPlan, VideoOutput, render,
+    EncoderChoice, OsdLayer, OutputPlan, Overwrite, RenderPlan, VideoOutput, render,
 };
 use flight_replay_core::synth::SoundSettings;
 use flight_replay_core::telemetry::{LoadOptions, Recording};

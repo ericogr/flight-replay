@@ -7,6 +7,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- A **Close** button on the last step, where Next is on the others, once a render has ended well and no queue is being
+  worked through. It closes the program, saving the settings as the close button of the window does.
+- A settings screen, reached by a button at the top right of every step (Escape closes it). It has FFmpeg, the colour
+  scheme, the reset of the settings and an About. It opens by itself, once, when FFmpeg is missing or too old.
+- **Install FFmpeg** in the settings: downloads one fixed GPL build for the system (Windows x86-64, macOS Apple
+  Silicon, Linux x86-64) with `curl`, only when the button is clicked, checks its SHA-256, runs it once and keeps it in
+  the data folder of the program. It shows the progress, can be cancelled, leaves the previous copy as it was when it
+  fails, and can be removed from the settings. An FFmpeg of the user is always used before it.
+
+### Fixed
+
+- A second click on a button that opens a file dialog no longer opens a second dialog. The dialog of the system is a
+  window of its own and the window of the program is not frozen under it, so the buttons could be clicked again and
+  again. Now only one is open at a time, and the buttons that open one wait until it is closed.
+- Looking for FFmpeg again (choosing its folder, "Check again", or the end of an install) no longer opens again the
+  video given on the command line or the font used last, over what you have opened since.
+- The check of free space before a render also works when the folder of the output does not exist yet.
+
+### Changed
+
+- The welcome step is a summary: the version of the program, FFmpeg (version and where it came from), the encoders
+  that work, the colour scheme, the free disk space and the settings file. The colour scheme, the FFmpeg folder and the
+  reset moved to the settings.
+
+- An FFmpeg older than version 6 is skipped, and the search goes on to the next one, instead of the first FFmpeg that
+  runs being taken. When every copy found is too old, step 1 now says so, with the version, instead of saying that
+  FFmpeg was not found. Builds made from git, whose version cannot be read, are still accepted.
+- The search looks last in the `ffmpeg` folder of the application's data folder, so an FFmpeg of the user always
+  wins over a copy the application keeps.
+
 ## [0.1.0] - 2026-11-07
 
 First release. The archives are for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon), and are not signed.

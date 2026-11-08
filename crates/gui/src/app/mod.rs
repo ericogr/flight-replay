@@ -13,6 +13,7 @@
 //! - `play`: the preview in motion, with the sound or without it
 //! - `rendering`: the plan of the render, and running it
 //! - `queue`: several videos, one after the other
+//! - `settings`: the settings screen, and installing FFmpeg
 
 mod files;
 mod options;
@@ -21,6 +22,7 @@ mod picture;
 mod play;
 mod queue;
 mod rendering;
+mod settings;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -36,7 +38,8 @@ use iced::{Subscription, Task, Theme};
 use crate::message::Message;
 use crate::preferences::{self, Preferences, ThemeChoice};
 use crate::state::{
-    FileKind, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, Preview, Queue, RenderState, Telemetry,
+    Dialog, DiskSpace, FileKind, InstallState, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo,
+    Preview, Queue, RenderState, SettingsScreen, Telemetry,
 };
 use crate::tasks;
 use crate::wizard::{self, Context, Step};
@@ -48,6 +51,37 @@ pub enum ToolsState {
     Searching,
     Found(Arc<Tools>),
     Missing(String),
+}
+
+/// Where the FFmpeg that is in use came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolsOrigin {
+    /// The copy that Flight Replay installed.
+    Installed,
+    /// The folder the user chose.
+    ChosenFolder,
+    /// Somewhere on the system: `PATH`, the usual folders or the folder of the program.
+    System,
+}
+
+impl ToolsOrigin {
+    /// The origin in words, to follow "FFmpeg 7.1 ·" or "Origin:".
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Installed => "installed by Flight Replay",
+            Self::ChosenFolder => "from the folder you chose",
+            Self::System => "found on this system",
+        }
+    }
+}
+
+/// Whether what the program opens by itself when it starts has been opened: the video given on the command line, and
+/// the font used last. Looking for FFmpeg again later (the user chose a folder, an install ended) must not open them
+/// again over what the user has done since.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Startup {
+    Pending,
+    Done,
 }
 
 /// What is being loaded right now.
@@ -65,6 +99,18 @@ pub struct Busy {
     pub audio: bool,
 }
 
+impl Busy {
+    /// Whether a file of this kind is being loaded.
+    pub fn of(&self, kind: FileKind) -> bool {
+        match kind {
+            FileKind::Video => self.video,
+            FileKind::Osd => self.osd,
+            FileKind::Srt => self.srt,
+            FileKind::Font => self.font,
+        }
+    }
+}
+
 /// The application.
 pub struct FlightReplay {
     /// What a render needs.
@@ -76,9 +122,22 @@ pub struct FlightReplay {
     pub notices: Vec<String>,
     /// The user asked to reset every setting and has not answered the question yet. It is never remembered.
     pub confirming_reset: bool,
+    /// The settings screen.
+    pub settings_screen: SettingsScreen,
+    startup: Startup,
 
     pub tools: ToolsState,
     pub encoders: Option<Arc<Vec<EncoderInfo>>>,
+    /// A dialog of the system for choosing a file or a folder.
+    pub dialog: Dialog,
+    /// The install of FFmpeg that the user asked for.
+    pub install: InstallState,
+    /// How many installs have been started, to tell one from the one before it.
+    install_runs: u64,
+    /// The free space where the output will go, read whenever the screens that show it open.
+    pub disk: Option<DiskSpace>,
+    /// Flight Replay keeps a copy of FFmpeg that it installed.
+    pub managed_installed: bool,
 
     pub step: Step,
     pub video: Option<Arc<LoadedVideo>>,
@@ -132,7 +191,7 @@ impl FlightReplay {
             preferences::load,
         );
         let file = SettingsFile::new(settings_path, &settings, &preferences);
-        Self {
+        let mut app = Self {
             preset_name: preferences.selected_preset.clone().unwrap_or_default(),
             settings,
             preferences,
@@ -140,8 +199,15 @@ impl FlightReplay {
             file,
             notices: notice.into_iter().collect(),
             confirming_reset: false,
+            settings_screen: SettingsScreen::default(),
+            startup: Startup::Pending,
             tools: ToolsState::Searching,
             encoders: None,
+            dialog: Dialog::Closed,
+            install: InstallState::Idle,
+            install_runs: 0,
+            disk: None,
+            managed_installed: false,
             step: Step::Welcome,
             video: None,
             osd: None,
@@ -159,7 +225,9 @@ impl FlightReplay {
             render: RenderState::Idle,
             queue: Queue::default(),
             command_lines: Vec::new(),
-        }
+        };
+        app.refresh_environment();
+        app
     }
 
     /// A file given on the command line, such as the video that the system opens with this application.
@@ -181,12 +249,17 @@ impl FlightReplay {
         }
     }
 
-    /// Drag and drop, closing the window, and changes of the system colour scheme.
+    /// Drag and drop, closing the window, the Escape key (which closes the settings screen), and changes of the system
+    /// colour scheme.
     pub fn subscription() -> Subscription<Message> {
-        let events = iced::event::listen_with(|event, _status, _window| match event {
+        let events = iced::event::listen_with(|event, status, _window| match event {
             iced::Event::Window(iced::window::Event::FileDropped(path)) => {
                 Some(Message::FileDropped(path))
             }
+            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+                ..
+            }) if status == iced::event::Status::Ignored => Some(Message::CloseSettings),
             iced::Event::Window(iced::window::Event::CloseRequested) => {
                 Some(Message::CloseRequested)
             }
@@ -206,6 +279,42 @@ impl FlightReplay {
             ToolsState::Found(tools) => Some(Arc::clone(tools)),
             _ => None,
         }
+    }
+
+    /// Where these tools came from.
+    pub fn origin_of(&self, tools: &Tools) -> ToolsOrigin {
+        if tools.is_managed() {
+            ToolsOrigin::Installed
+        } else if self
+            .settings
+            .ffmpeg_dir
+            .as_deref()
+            .is_some_and(|dir| tools.ffmpeg().starts_with(dir))
+        {
+            ToolsOrigin::ChosenFolder
+        } else {
+            ToolsOrigin::System
+        }
+    }
+
+    /// The video encoders that work, as names with their kind. `None` while it is not known.
+    pub fn working_encoders(&self) -> Option<Vec<String>> {
+        self.encoders.as_ref().map(|list| {
+            list.iter()
+                .filter(|encoder| encoder.works)
+                .map(|encoder| {
+                    format!(
+                        "{} ({})",
+                        encoder.name,
+                        if encoder.hardware {
+                            "hardware"
+                        } else {
+                            "software"
+                        }
+                    )
+                })
+                .collect()
+        })
     }
 
     /// The facts the wizard rules work from.
@@ -302,6 +411,12 @@ impl FlightReplay {
         }
     }
 
+    /// Whether the work of the wizard is over: a render ended well and no queue is being worked through. The last step
+    /// then offers to close the window.
+    pub fn work_is_done(&self) -> bool {
+        matches!(self.render, RenderState::Finished(Ok(_))) && !self.queue.running
+    }
+
     /// Whether a render is running.
     pub fn is_rendering(&self) -> bool {
         matches!(self.render, RenderState::Running(_))
@@ -358,14 +473,29 @@ impl FlightReplay {
             // the environment
             Message::ToolsLocated(result) => self.tools_located(result),
             Message::EncodersDetected(list) => self.encoders_detected(list),
-            Message::ChooseFfmpegFolder => tasks::pick_folder(
-                "Choose the folder of ffmpeg and ffprobe",
-                Message::FfmpegFolderChosen,
-            ),
+            Message::Dialog(answer) => {
+                self.dialog = Dialog::Closed;
+                self.react(*answer)
+            }
+            Message::ChooseFfmpegFolder => self.ask(|| {
+                tasks::pick_folder(
+                    "Choose the folder of ffmpeg and ffprobe",
+                    Message::FfmpegFolderChosen,
+                )
+            }),
             Message::FfmpegFolderChosen(dir) => {
                 dir.map_or_else(Task::none, |dir| self.ffmpeg_folder_chosen(dir))
             }
             Message::Theme(theme) => self.choose_theme(theme),
+            Message::OpenSettings => self.open_settings(),
+            Message::CloseSettings => self.close_settings(),
+            Message::InstallFfmpeg => self.install_ffmpeg(),
+            Message::CancelInstall => self.cancel_install(),
+            Message::Install(id, message) => self.install_message(id, message),
+            Message::RemoveInstalledFfmpeg => self.remove_installed_ffmpeg(),
+            Message::RecheckFfmpeg => self.recheck_ffmpeg(),
+            Message::OpenSettingsFolder => self.open_settings_folder(),
+            Message::OpenProjectPage => Self::open_project_page(),
             Message::SystemTheme(mode) => {
                 self.system_mode = mode;
                 Task::none()
@@ -452,10 +582,12 @@ impl FlightReplay {
 
             // the queue
             Message::QueueAdd => self.queue_add(),
-            Message::QueueAddFolder => tasks::pick_folder(
-                "Choose the folder with the videos",
-                Message::QueueFolderChosen,
-            ),
+            Message::QueueAddFolder => self.ask(|| {
+                tasks::pick_folder(
+                    "Choose the folder with the videos",
+                    Message::QueueFolderChosen,
+                )
+            }),
             Message::QueueFolderChosen(folder) => {
                 folder.map_or_else(Task::none, |folder| self.queue_plan_folder(folder))
             }
@@ -489,6 +621,17 @@ impl FlightReplay {
         }
     }
 
+    /// Opens a dialog of the system with the task that `open` makes, unless one is open already. The dialog is a window
+    /// of its own and the window of the program stays alive under it, so without this a second click would open a
+    /// second dialog. The answer closes it (see [`Message::Dialog`]).
+    pub(super) fn ask(&mut self, open: impl FnOnce() -> Task<Message>) -> Task<Message> {
+        if self.dialog.is_open() {
+            return Task::none();
+        }
+        self.dialog = Dialog::Open;
+        open()
+    }
+
     /// Moves to a step, if the wizard allows it.
     fn go_to(&mut self, target: Option<Step>) -> Task<Message> {
         let Some(target) = target else {
@@ -499,6 +642,9 @@ impl FlightReplay {
         }
         let leaving = target != self.step;
         self.step = target;
+        if leaving && target == Step::Welcome {
+            self.refresh_environment();
+        }
         // What plays belongs to the step it was started in.
         let stopped = if leaving {
             // A question left open on the welcome step is not waiting when the user comes back.
@@ -524,30 +670,48 @@ impl FlightReplay {
         match result {
             Ok(tools) => {
                 self.tools = ToolsState::Found(Arc::clone(&tools));
-                let mut tasks = vec![tasks::detect_encoders(tools)];
-                if let Some(path) = Self::path_from_arguments() {
-                    tasks.push(self.open_dropped(path));
+                // A failed install is no longer the news once FFmpeg has been found, by whatever means.
+                if matches!(self.install, InstallState::Failed(_)) {
+                    self.install = InstallState::Idle;
                 }
-                // The font used last: one of the program's, or a file that is still there.
-                if let Some(font) = self
-                    .settings
-                    .bundled_font
-                    .as_deref()
-                    .and_then(BundledFont::find)
-                {
-                    tasks.push(self.use_bundled_font(font));
-                } else if let Some(path) = self.settings.font_path.clone()
-                    && path.is_file()
-                {
-                    tasks.push(self.open_file(FileKind::Font, path));
+                let mut tasks = vec![tasks::detect_encoders(tools)];
+                // They need FFmpeg, so they wait for the first time it is found, which is not always at the start.
+                if std::mem::replace(&mut self.startup, Startup::Done) == Startup::Pending {
+                    tasks.extend(self.open_startup_files());
                 }
                 Task::batch(tasks)
             }
             Err(error) => {
                 self.tools = ToolsState::Missing(error);
+                // Offered once: the user can close it, and the welcome step says what is wrong.
+                if !std::mem::replace(&mut self.settings_screen.offered, true) {
+                    self.settings_screen.open = true;
+                }
                 Task::none()
             }
         }
+    }
+
+    /// Opens the video given on the command line and the font used last.
+    fn open_startup_files(&mut self) -> Vec<Task<Message>> {
+        let mut tasks = Vec::new();
+        if let Some(path) = Self::path_from_arguments() {
+            tasks.push(self.open_dropped(path));
+        }
+        // The font used last: one of the program's, or a file that is still there.
+        if let Some(font) = self
+            .settings
+            .bundled_font
+            .as_deref()
+            .and_then(BundledFont::find)
+        {
+            tasks.push(self.use_bundled_font(font));
+        } else if let Some(path) = self.settings.font_path.clone()
+            && path.is_file()
+        {
+            tasks.push(self.open_file(FileKind::Font, path));
+        }
+        tasks
     }
 
     /// Keeps the encoder that was chosen if it works. Otherwise takes the first one that does.

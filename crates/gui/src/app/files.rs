@@ -34,7 +34,7 @@ impl FlightReplay {
             FileKind::Video => self.preferences.last_video_dir.clone(),
             _ => self.video_folder(),
         };
-        tasks::pick_file(kind, start, move |path| Message::FileChosen(kind, path))
+        self.ask(move || tasks::pick_file(kind, start, move |path| Message::FileChosen(kind, path)))
     }
 
     /// Starts opening a file. What it gives arrives as a message when it has been read.
@@ -135,7 +135,8 @@ impl FlightReplay {
 
     /// Asks the user for the `.osd` file of the next recording.
     pub(super) fn browse_more_osd(&mut self) -> Task<Message> {
-        tasks::pick_file(FileKind::Osd, self.video_folder(), Message::OsdAdded)
+        let start = self.video_folder();
+        self.ask(move || tasks::pick_file(FileKind::Osd, start, Message::OsdAdded))
     }
 
     pub(super) fn add_osd(&mut self, path: PathBuf) -> Task<Message> {

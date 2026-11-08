@@ -24,10 +24,12 @@ pub fn view(app: &FlightReplay) -> Element<'_, Message> {
 }
 
 /// The buttons of a file row.
-fn buttons<'a>(kind: FileKind, open: bool, busy: bool) -> Element<'a, Message> {
+fn buttons<'a>(app: &FlightReplay, kind: FileKind, open: bool) -> Element<'a, Message> {
+    // The file is being read, or a dialog is open: a second click would only get in the way of the first.
+    let free = !app.busy.of(kind) && !app.dialog.is_open();
     let mut line = row![action(
         if open { "Change…" } else { "Choose…" },
-        (!busy).then_some(Message::Browse(kind))
+        free.then_some(Message::Browse(kind))
     )]
     .spacing(8);
     if open && kind != FileKind::Video {
@@ -36,8 +38,8 @@ fn buttons<'a>(kind: FileKind, open: bool, busy: bool) -> Element<'a, Message> {
     line.into()
 }
 
-fn status(app: &FlightReplay, kind: FileKind, busy: bool) -> Element<'_, Message> {
-    if busy {
+fn status(app: &FlightReplay, kind: FileKind) -> Element<'_, Message> {
+    if app.busy.of(kind) {
         return hint("Reading…");
     }
     match app.file_error(kind) {
@@ -56,11 +58,7 @@ fn video(app: &FlightReplay) -> Element<'_, Message> {
                 "no sound"
             };
             column![
-                row![
-                    path_text(&video.path),
-                    buttons(FileKind::Video, true, app.busy.video)
-                ]
-                .spacing(12),
+                row![path_text(&video.path), buttons(app, FileKind::Video, true)].spacing(12),
                 hint(format!(
                     "{}x{}, {}, {:.2} fps (declared {:.0}), {}, {} frames, {sound}",
                     i.width,
@@ -74,15 +72,11 @@ fn video(app: &FlightReplay) -> Element<'_, Message> {
             ]
             .spacing(6)
         }
-        None => column![
-            row![
-                text("No video yet."),
-                buttons(FileKind::Video, false, app.busy.video)
-            ]
-            .spacing(12)
-        ],
+        None => {
+            column![row![text("No video yet."), buttons(app, FileKind::Video, false)].spacing(12)]
+        }
     };
-    column![info, status(app, FileKind::Video, app.busy.video)]
+    column![info, status(app, FileKind::Video)]
         .spacing(6)
         .into()
 }
@@ -116,12 +110,12 @@ fn osd(app: &FlightReplay) -> Element<'_, Message> {
                 }
             } else {
                 items = items.push(
-                    row![path_text(osd.path()), buttons(FileKind::Osd, true, busy)].spacing(12),
+                    row![path_text(osd.path()), buttons(app, FileKind::Osd, true)].spacing(12),
                 );
             }
             items = items.push(action(
                 "Add the .osd of another recording…",
-                (!busy).then_some(Message::AddOsd),
+                (!busy && !app.dialog.is_open()).then_some(Message::AddOsd),
             ));
             items = items.push(hint(format!(
                 "{}, {}x{} grid, {} screens, {}",
@@ -147,24 +141,18 @@ fn osd(app: &FlightReplay) -> Element<'_, Message> {
         }
         None => row![
             text("None found next to the video."),
-            buttons(FileKind::Osd, false, busy)
+            buttons(app, FileKind::Osd, false)
         ]
         .spacing(12)
         .into(),
     };
-    column![body, status(app, FileKind::Osd, busy)]
-        .spacing(6)
-        .into()
+    column![body, status(app, FileKind::Osd)].spacing(6).into()
 }
 
 fn srt(app: &FlightReplay) -> Element<'_, Message> {
     let body: Element<'_, Message> = match &app.srt {
         Some(srt) => column![
-            row![
-                path_text(&srt.path),
-                buttons(FileKind::Srt, true, app.busy.srt)
-            ]
-            .spacing(12),
+            row![path_text(&srt.path), buttons(app, FileKind::Srt, true)].spacing(12),
             hint(format!(
                 "{} subtitles, {}",
                 srt.file.cues.len(),
@@ -175,14 +163,12 @@ fn srt(app: &FlightReplay) -> Element<'_, Message> {
         .into(),
         None => row![
             text("None found next to the video."),
-            buttons(FileKind::Srt, false, app.busy.srt)
+            buttons(app, FileKind::Srt, false)
         ]
         .spacing(12)
         .into(),
     };
-    column![body, status(app, FileKind::Srt, app.busy.srt)]
-        .spacing(6)
-        .into()
+    column![body, status(app, FileKind::Srt)].spacing(6).into()
 }
 
 /// What the font section says before a font is chosen.
@@ -211,7 +197,7 @@ fn font(app: &FlightReplay) -> Element<'_, Message> {
             },
             action(
                 if is_file { "Change…" } else { "Choose…" },
-                (!busy).then_some(Message::Browse(FileKind::Font))
+                (!busy && !app.dialog.is_open()).then_some(Message::Browse(FileKind::Font))
             ),
         ]
         .spacing(12)
@@ -239,7 +225,7 @@ fn font(app: &FlightReplay) -> Element<'_, Message> {
             items = items.push(hint(NO_FONT_HINT));
         }
     }
-    column![items, status(app, FileKind::Font, busy)]
+    column![items, status(app, FileKind::Font)]
         .spacing(6)
         .into()
 }

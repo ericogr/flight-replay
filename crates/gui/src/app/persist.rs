@@ -7,7 +7,7 @@
 //! compared with what the file holds after every message, so no handler has to remember to save, and a choice made
 //! just before the program is killed is not lost.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use flight_replay_core::config::Settings;
@@ -50,6 +50,11 @@ impl SettingsFile {
             waiting: false,
             failing: false,
         }
+    }
+
+    /// Where the settings are written, if they are kept.
+    pub(super) fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 }
 

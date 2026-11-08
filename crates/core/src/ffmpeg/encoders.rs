@@ -13,7 +13,7 @@ use std::thread;
 use serde::{Deserialize, Serialize};
 
 use super::Tools;
-use super::tools::{command, runs};
+use super::tools::command;
 
 /// Video codec families offered to the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,7 +179,7 @@ fn test_encode(ffmpeg: &Path, name: &str) -> bool {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    command.status().is_ok_and(|status| status.success()) && runs(ffmpeg)
+    command.status().is_ok_and(|status| status.success())
 }
 
 #[cfg(test)]

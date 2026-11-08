@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 authors.workspace = true
 publish = false
 
@@ -12,9 +13,9 @@ publish = false
 flight-replay-core.workspace = true
 anyhow.workspace = true
 flate2 = "1.1.10"
-tar = "0.4.46"
-sha2 = "0.10.9"
-zip = { version = "9.4.0", default-features = false, features = ["deflate"] }
+tar.workspace = true
+sha2.workspace = true
+zip.workspace = true
 
 [lints]
 workspace = true

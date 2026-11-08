@@ -13,10 +13,11 @@ use std::time::{Duration, Instant};
 use ab_glyph::FontRef;
 use image::RgbaImage;
 
-use super::events::{CancelToken, Event, Stage};
+use super::events::{Event, Stage};
 use super::plan::{Mode, Overwrite, RenderPlan, ResolvedWindow, VideoOutput};
 use crate::assets::SRT_FONT;
 use crate::audio::{pcm16le, write_wav_header};
+use crate::cancel::CancelToken;
 use crate::ffmpeg::{
     AudioInput, DecodeOptions, EncodeJob, EncodeProcess, FfmpegError, FrameReader, Tools,
     VideoEncoding, VideoInput, probe,
@@ -24,7 +25,7 @@ use crate::ffmpeg::{
 use crate::font::{CharacterSize, ScaledFont};
 use crate::osd::OsdFile;
 use crate::overlay::{chroma_background, draw_osd, draw_srt};
-use crate::paths::{file_name, folder_or_current, parent_folder};
+use crate::paths::{file_name, folder_or_current, free_space, has_room, parent_folder};
 use crate::synth::{
     Engine, EngineError, RenderStats, SignalError, SignalSet, SoundSettings, frames_for,
 };
@@ -560,19 +561,14 @@ fn overlay(
 /// Stops before the sound is made if the folder of the temporary sound file cannot hold it. A folder whose free
 /// space cannot be read is not blocked.
 fn check_free_space(dir: &Path, needed: u64) -> Result<(), RenderError> {
-    match fs4::available_space(dir) {
-        Ok(available) if !has_room(available, needed) => Err(RenderError::NotEnoughSpace {
+    match free_space(dir) {
+        Some(available) if !has_room(available, needed) => Err(RenderError::NotEnoughSpace {
             needed,
             available,
             dir: dir.to_path_buf(),
         }),
         _ => Ok(()),
     }
-}
-
-/// Whether `available` bytes hold `needed` bytes with a margin of 5 %.
-fn has_room(available: u64, needed: u64) -> bool {
-    available >= needed + needed / 20
 }
 
 /// Where the temporary sound file of a render goes: next to the output.
@@ -640,13 +636,6 @@ fn check_output(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn needs_a_margin_over_the_size_of_the_file() {
-        assert!(has_room(1_050, 1_000));
-        assert!(!has_room(1_049, 1_000));
-        assert!(has_room(0, 0));
-    }
 
     #[test]
     fn the_free_space_of_a_real_folder_is_readable() {

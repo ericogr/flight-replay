@@ -62,7 +62,7 @@ fn queue(app: &FlightReplay) -> Element<'_, Message> {
             ),
             action(
                 "Add the videos of a folder…",
-                (!rendering && !queue.preparing && app.tools().is_some())
+                (!rendering && !queue.preparing && !app.dialog.is_open() && app.tools().is_some())
                     .then_some(Message::QueueAddFolder)
             ),
         ]

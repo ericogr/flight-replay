@@ -13,12 +13,13 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
+use flight_replay_core::cancel::CancelToken;
 use flight_replay_core::ffmpeg::{Tools, probe};
 use flight_replay_core::font::FontSheet;
 use flight_replay_core::osd::{OsdFile, OsdOptions};
 use flight_replay_core::render::{
-    CancelToken, EncoderChoice, Event, OsdLayer, OutputPlan, Overwrite, RenderPlan, SrtLayer,
-    VideoOutput, Window, render,
+    EncoderChoice, Event, OsdLayer, OutputPlan, Overwrite, RenderPlan, SrtLayer, VideoOutput,
+    Window, render,
 };
 use flight_replay_core::srt::{SrtFile, SrtOptions};
 use flight_replay_core::synth::SoundSettings;
