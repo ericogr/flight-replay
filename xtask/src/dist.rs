@@ -251,11 +251,15 @@ pub fn write_tar_gz(entries: &[Entry], path: &Path) -> Result<()> {
 }
 
 /// Writes the entries as a zip archive.
+///
+/// The permissions are always written as Unix ones. Left alone, the `zip` crate writes the system it runs on, and on
+/// Windows that is DOS, which has no executable bit: the program in `Flight Replay.app` would lose it.
 pub fn write_zip(entries: &[Entry], path: &Path) -> Result<()> {
     let mut zip = zip::ZipWriter::new(fs::File::create(path)?);
     for entry in entries {
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
+            .system(zip::System::Unix)
             .unix_permissions(entry.mode);
         zip.start_file(&entry.path, options)?;
         zip.write_all(&entry.data)?;
