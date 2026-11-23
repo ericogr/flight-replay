@@ -495,9 +495,17 @@ mod tests {
         let job = copy_job(&["/in/a.mp4", "/in/it's b.mp4"]);
         let path = job.concat_list_path().expect("a list for two videos");
         assert_eq!(path, PathBuf::from("/out/flight.mp4.parts.txt"));
-        // A quote in a name is closed, escaped and opened again, as the list format wants.
+        // The names are written whole (on Windows `/in` is on a drive, so the text is not the same on every system),
+        // and a quote in a name is closed, escaped and opened again, as the list format wants.
         let text = concat_list_text(&[PathBuf::from("/in/a.mp4"), PathBuf::from("/in/it's b.mp4")]);
-        assert_eq!(text, "file '/in/a.mp4'\nfile '/in/it'\\''s b.mp4'\n");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        for line in &lines {
+            let name = line.strip_prefix("file '").expect("a file line");
+            assert!(Path::new(name).is_absolute(), "{line}");
+        }
+        assert!(lines[0].ends_with("a.mp4'"), "{text}");
+        assert!(lines[1].ends_with("it'\\''s b.mp4'"), "{text}");
 
         let args = arguments(&job);
         let seek = args.iter().position(|a| a == "-ss").unwrap();
