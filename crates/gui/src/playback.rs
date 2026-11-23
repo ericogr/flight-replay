@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader};
+use flight_replay_core::footage::Slice;
 use iced::futures::channel::mpsc;
 use image::RgbaImage;
 
@@ -127,22 +128,29 @@ fn run(
     stop: &AtomicBool,
 ) -> Result<(), String> {
     let scene = &request.scene;
-    let info = &scene.info;
+    let info = scene.footage.info();
     let (width, height) = shown_size(info.width, info.height);
     let rate = play_rate(info.nominal_frame_rate);
-    let mut reader = FrameReader::open(
-        &scene.tools,
-        &scene.video,
-        &DecodeOptions {
-            width: info.width,
-            height: info.height,
-            start_s: request.start_s,
-            duration_s: Some(request.duration_s),
-            constant_rate: Some(rate),
-            scale_to: ((width, height) != (info.width, info.height)).then_some((width, height)),
-        },
-    )
-    .map_err(|e| e.to_string())?;
+    // The stretch is in one video, or goes on from one into the next.
+    let slices = scene
+        .footage
+        .slices(request.start_s, Some(request.duration_s));
+    let open = |slice: &Slice| {
+        FrameReader::open(
+            &scene.tools,
+            scene.footage.path(slice.part),
+            &DecodeOptions {
+                scale_to: ((width, height) != (info.width, info.height)).then_some((width, height)),
+                ..scene.footage.decode_options(slice, rate)
+            },
+        )
+        .map_err(|e| e.to_string())
+    };
+    let Some(first) = slices.first() else {
+        return Ok(());
+    };
+    let mut reader = open(first)?;
+    let mut next = 1;
     // FFmpeg is already seeking, so the glyphs are made while it does.
     let layers = Layers::new(scene, f64::from(width) / f64::from(info.width.max(1)))?;
 
@@ -156,8 +164,17 @@ fn run(
         match reader.read_frame(&mut buffer) {
             Ok(true) => {}
             Ok(false) => {
-                ended = true;
-                break;
+                // The end of a video is not an error, but a failure of FFmpeg before it is. The next video, if the
+                // stretch goes on, is already running when this one is closed.
+                let Some(slice) = slices.get(next) else {
+                    ended = true;
+                    break;
+                };
+                next += 1;
+                std::mem::replace(&mut reader, open(slice)?)
+                    .finish()
+                    .map_err(|e| e.to_string())?;
+                continue;
             }
             Err(_) if stop.load(Ordering::Relaxed) => break,
             Err(error) => return Err(error.to_string()),

@@ -12,23 +12,22 @@ use super::{
     EncoderChoice, OsdLayer, OutputPlan, Overwrite, RenderPlan, SrtLayer, VideoOutput, Window,
 };
 use crate::config::{OutputSettings, Settings};
-use crate::ffmpeg::{EncoderInfo, VideoInfo};
+use crate::ffmpeg::EncoderInfo;
 use crate::font::OsdFont;
-use crate::osd::OsdFile;
+use crate::footage::Footage;
+use crate::osd::{JoinPart, OsdFile};
 use crate::srt::SrtFile;
 use crate::timeline::SyncOptions;
 
 /// What a plan is made from.
 pub struct PlanInputs<'a> {
-    /// The video.
-    pub video: PathBuf,
-    /// What is known about it.
-    pub info: VideoInfo,
-    /// The OSD recording (the joined one, when the video has several).
+    /// The video: one file, or several that follow one another.
+    pub footage: Footage,
+    /// The OSD recording (the joined one, when there are several files).
     pub osd: Option<&'a OsdFile>,
-    /// The path of the `.osd` file, for messages.
-    pub osd_path: Option<PathBuf>,
-    /// The subtitles.
+    /// Where each `.osd` file sits in the recording, and what it is called. Empty without a recording.
+    pub osd_parts: &'a [JoinPart],
+    /// The subtitles, on the timeline of the whole video (see [`crate::srt::SrtFile::join`] for several files).
     pub srt: Option<&'a SrtFile>,
     /// The OSD font.
     pub font: Option<&'a OsdFont>,
@@ -87,7 +86,7 @@ pub fn build_plan(inputs: &PlanInputs<'_>) -> Result<RenderPlan, Vec<String>> {
 
     let osd_layer = match (inputs.font, settings.draw_osd) {
         (Some(font), true) => Some(OsdLayer {
-            font: font.sheet_for(inputs.info.height).clone(),
+            font: font.sheet_for(inputs.footage.info().height).clone(),
             options: settings.osd.clone(),
         }),
         (None, true) => {
@@ -109,11 +108,15 @@ pub fn build_plan(inputs: &PlanInputs<'_>) -> Result<RenderPlan, Vec<String>> {
     };
 
     let needs_osd = settings.draw_osd || settings.make_sound;
+    let osd = needs_osd.then(|| inputs.osd.cloned()).flatten();
     let plan = RenderPlan {
-        video: inputs.video.clone(),
-        info: inputs.info.clone(),
-        osd: needs_osd.then(|| inputs.osd.cloned()).flatten(),
-        osd_path: inputs.osd_path.clone(),
+        footage: inputs.footage.clone(),
+        osd_parts: if osd.is_some() {
+            inputs.osd_parts.to_vec()
+        } else {
+            Vec::new()
+        },
+        osd,
         osd_layer,
         srt_layer,
         chroma_key: (output.chroma_key && draws).then_some(output.chroma_key_color),
@@ -146,7 +149,7 @@ pub fn build_plan(inputs: &PlanInputs<'_>) -> Result<RenderPlan, Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffmpeg::Codec;
+    use crate::ffmpeg::{Codec, VideoInfo};
 
     fn info() -> VideoInfo {
         VideoInfo {
@@ -174,10 +177,9 @@ mod tests {
 
     fn inputs<'a>(settings: &'a Settings, encoders: &'a [EncoderInfo]) -> PlanInputs<'a> {
         PlanInputs {
-            video: "a.mp4".into(),
-            info: info(),
+            footage: Footage::single("a.mp4".into(), info()),
             osd: None,
-            osd_path: None,
+            osd_parts: &[],
             srt: None,
             font: None,
             settings,
@@ -253,11 +255,20 @@ mod tests {
             trailing_bytes: 0,
         };
         let font = two_sizes();
+        let parts = [JoinPart {
+            name: "a.osd".into(),
+            start_s: 0.0,
+            end_s: 3.0,
+            frames: 0,
+        }];
         let sheet_of = |height: u32| {
             let mut inputs = inputs(&settings, &encoders);
             inputs.osd = Some(&osd);
+            inputs.osd_parts = &parts;
             inputs.font = Some(&font);
-            inputs.info.height = height;
+            let mut video = info();
+            video.height = height;
+            inputs.footage = Footage::single("a.mp4".into(), video);
             build_plan(&inputs)
                 .expect("a plan")
                 .osd_layer

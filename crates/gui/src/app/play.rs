@@ -81,8 +81,8 @@ impl FlightReplay {
     /// How much of the video can be played from the time of the preview, in seconds. The picture cannot go past the
     /// end of the video. Tells the user when there is nothing left.
     fn seconds_to_play(&mut self) -> Option<f64> {
-        let video = self.video.as_ref()?;
-        let seconds = PREVIEW_SECONDS.min(video.info.duration_s - self.preview.time_s);
+        let footage = self.footage.as_ref()?;
+        let seconds = PREVIEW_SECONDS.min(footage.info().duration_s - self.preview.time_s);
         if seconds < MIN_PREVIEW_SECONDS {
             self.play_error = Some("There is no video left to play from here.".to_owned());
             return None;

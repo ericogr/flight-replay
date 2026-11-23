@@ -81,15 +81,16 @@ impl FlightReplay {
 
     /// Centres what the OSD shows at the moment of the preview on the picture.
     fn center_osd(&mut self) {
-        let (Some(video), Some(osd), Some(font), Some(timeline)) =
-            (&self.video, &self.osd, &self.scaled_font, self.timeline())
+        let (Some(footage), Some(osd), Some(font), Some(timeline)) =
+            (&self.footage, &self.osd, &self.scaled_font, self.timeline())
         else {
             return;
         };
         let frame = timeline.osd_frame(&osd.file, self.preview.time_s);
+        let info = footage.info();
         self.settings
             .osd
-            .center_on(frame, video.info.width, video.info.height, &font.size());
+            .center_on(frame, info.width, info.height, &font.size());
     }
 
     pub(super) fn edit_srt(&mut self, edit: SrtEdit) -> Task<Message> {

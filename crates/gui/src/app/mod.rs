@@ -6,7 +6,7 @@
 //! [`FlightReplay::update`] is one flat table from message to handler, so the compiler checks that every message is
 //! handled. The handlers are in the modules of this folder, one for each part of the work:
 //!
-//! - `files`: opening, replacing and clearing the video and the files that go with it
+//! - `files`: opening, replacing and clearing the videos of the flight and the files that go with each
 //! - `options`: what to draw, how to encode, and the other choices of the steps
 //! - `picture`: the preview picture
 //! - `persist`: writing the settings file whenever a choice changes
@@ -30,6 +30,8 @@ use std::sync::Arc;
 use flight_replay_core::config::{self, Settings};
 use flight_replay_core::ffmpeg::{EncoderInfo, Tools};
 use flight_replay_core::font::{BundledFont, ScaledFont};
+use flight_replay_core::footage::Footage;
+use flight_replay_core::paths::file_name;
 use flight_replay_core::render::Availability;
 use flight_replay_core::synth::SignalSet;
 use flight_replay_core::timeline::Timeline;
@@ -38,7 +40,7 @@ use iced::{Subscription, Task, Theme};
 use crate::message::Message;
 use crate::preferences::{self, Preferences, ThemeChoice};
 use crate::state::{
-    Dialog, DiskSpace, FileKind, InstallState, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo,
+    Clip, Dialog, DiskSpace, FileKind, InstallState, LoadedFont, LoadedOsd, LoadedSrt, Placing,
     Preview, Queue, RenderState, SettingsScreen, Telemetry,
 };
 use crate::tasks;
@@ -140,9 +142,22 @@ pub struct FlightReplay {
     pub managed_installed: bool,
 
     pub step: Step,
-    pub video: Option<Arc<LoadedVideo>>,
+    /// The videos of the flight, in the order they play, each with the files chosen for it. This is what the user
+    /// chose: the rest of what is about the videos and their files is worked out from it.
+    pub clips: Vec<Clip>,
+    /// The videos on one timeline. `None` without a video.
+    pub footage: Option<Arc<Footage>>,
+    /// The `.osd` files of all the videos, on one timeline. `None` until every video has one and they are read.
     pub osd: Option<Arc<LoadedOsd>>,
+    /// The `.srt` files of all the videos, on the timeline of the whole video. `None` until every video has one and
+    /// they are read.
     pub srt: Option<Arc<LoadedSrt>>,
+    /// How many times the `.osd` files and the `.srt` files were asked for. An answer that is not for the last time
+    /// was overtaken by a change of the files, and is ignored.
+    osd_load: u64,
+    srt_load: u64,
+    /// Videos dropped on the window that wait for the others dropped with them.
+    dropped_videos: Vec<PathBuf>,
     pub font: Option<Arc<LoadedFont>>,
     /// The font at the size of the video, made when the font and the video are both open.
     scaled_font: Option<Arc<ScaledFont>>,
@@ -209,9 +224,13 @@ impl FlightReplay {
             disk: None,
             managed_installed: false,
             step: Step::Welcome,
-            video: None,
+            clips: Vec::new(),
+            footage: None,
             osd: None,
             srt: None,
+            osd_load: 0,
+            srt_load: 0,
+            dropped_videos: Vec::new(),
             font: None,
             scaled_font: None,
             telemetry: None,
@@ -321,7 +340,7 @@ impl FlightReplay {
     pub fn context(&self) -> Context {
         Context {
             tools_found: self.tools().is_some(),
-            video: self.video.is_some(),
+            video: self.footage.is_some(),
             draw_osd: self.draw_osd_on(),
             draw_srt: self.draw_srt_on(),
             make_sound: self.sound_on(),
@@ -332,12 +351,37 @@ impl FlightReplay {
 
     /// What the files at hand allow, apart from what the telemetry says: why the OSD, the SRT data and the sound
     /// cannot be made, if they cannot.
+    ///
+    /// With several videos the reasons name the ones that lack a file, because what is drawn or made follows the
+    /// whole flight and needs the file of every video.
     pub fn files_allow(&self) -> Availability {
+        let several = self.clips.len() > 1;
+        let named = |kind| {
+            if several {
+                self.videos_without(kind)
+            } else {
+                Vec::new()
+            }
+        };
         Availability::new(
             self.osd.as_ref().map(|o| &*o.file),
             self.font.is_some(),
             self.srt.is_some(),
         )
+        .naming(&named(FileKind::Osd), &named(FileKind::Srt))
+    }
+
+    /// The names of the videos that have no file of this kind chosen (`.osd` or `.srt`).
+    pub fn videos_without(&self, kind: FileKind) -> Vec<String> {
+        self.clips
+            .iter()
+            .filter(|clip| match kind {
+                FileKind::Osd => clip.osd.is_empty(),
+                FileKind::Srt => clip.srt.is_none(),
+                FileKind::Video | FileKind::Font => false,
+            })
+            .map(|clip| file_name(&clip.video.path))
+            .collect()
     }
 
     /// What the files and the telemetry allow. What is not allowed is left out of the render, and the steps say why.
@@ -377,12 +421,8 @@ impl FlightReplay {
 
     /// The mapping between video time and telemetry time.
     pub fn timeline(&self) -> Option<Timeline> {
-        let (video, osd) = (self.video.as_ref()?, self.osd.as_ref()?);
-        Some(Timeline::new(
-            self.preferences.sync.options(),
-            video.info.duration_s,
-            osd.file.duration_s(),
-        ))
+        let (footage, osd) = (self.footage.as_ref()?, self.osd.as_ref()?);
+        footage.timeline(self.preferences.sync.options(), &osd.parts)
     }
 
     /// The signals of the sound, if the telemetry has been read and has what the sound needs.
@@ -425,8 +465,10 @@ impl FlightReplay {
     // ----- what is remembered and what is derived
 
     fn rebuild_scaled_font(&mut self) {
-        self.scaled_font = match (&self.font, &self.video) {
-            (Some(font), Some(video)) => Some(Arc::new(font.font.scaled_for(video.info.height))),
+        self.scaled_font = match (&self.font, &self.footage) {
+            (Some(font), Some(footage)) => {
+                Some(Arc::new(font.font.scaled_for(footage.info().height)))
+            }
             _ => None,
         };
     }
@@ -436,7 +478,7 @@ impl FlightReplay {
         let (Some(osd), Some(telemetry)) = (&self.osd, &mut self.telemetry) else {
             return;
         };
-        let name = flight_replay_core::paths::file_name(osd.path());
+        let name = file_name(osd.path());
         telemetry.signals = SignalSet::collect(
             &telemetry.recording.table,
             &self.settings.sound,
@@ -524,13 +566,24 @@ impl FlightReplay {
                 path.map_or_else(Task::none, |path| self.open_file(kind, path))
             }
             Message::FileDropped(path) => self.open_dropped(path),
+            Message::DropsSettled => self.drops_settled(),
             Message::Clear(kind) => self.clear_file(kind),
             Message::UseBundledFont(font) => self.use_bundled_font(font),
-            Message::VideoLoaded(result) => self.video_loaded(result),
-            Message::OsdLoaded(result) => self.osd_loaded(result),
-            Message::SrtLoaded(result) => self.srt_loaded(result),
+            Message::AddVideos => self.browse_more_videos(),
+            Message::VideosChosen(paths) => self.open_videos(paths, Placing::Replace),
+            Message::VideosAdded(paths) => self.open_videos(paths, Placing::Append),
+            Message::RemoveVideo(index) => self.remove_video(index),
+            Message::MoveVideoUp(index) => self.move_video_up(index),
+            Message::VideosLoaded(placing, result) => self.videos_loaded(placing, result),
+            Message::BrowseClipFile(kind, clip) => self.browse_clip_file(kind, clip),
+            Message::ClipFileChosen(kind, clip, path) => {
+                path.map_or_else(Task::none, |path| self.set_clip_file(kind, clip, path))
+            }
+            Message::ClearClipFile(kind, clip) => self.clear_clip_file(kind, clip),
+            Message::OsdLoaded(load, result) => self.osd_loaded(load, result),
+            Message::SrtLoaded(load, result) => self.srt_loaded(load, result),
             Message::FontLoaded(result) => self.font_loaded(result),
-            Message::TelemetryReady(path, result) => self.telemetry_ready(&path, result),
+            Message::TelemetryReady(load, result) => self.telemetry_ready(load, result),
             Message::AddOsd => self.browse_more_osd(),
             Message::OsdAdded(path) => path.map_or_else(Task::none, |path| self.add_osd(path)),
             Message::RemoveOsdFile(index) => self.remove_osd(index),

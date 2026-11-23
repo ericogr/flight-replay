@@ -6,6 +6,7 @@
 // `.partial` file that is renamed when FFmpeg succeeds.
 
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -31,10 +32,11 @@ pub enum VideoInput {
         /// Frames per second.
         frame_rate: f64,
     },
-    /// The video stream of a file, copied without re-encoding (`-c:v copy`).
+    /// The video stream of a file, or of several that follow one another, copied without re-encoding (`-c:v copy`).
+    /// Several files must have the same codec and picture: FFmpeg joins them as they are.
     Copy {
-        /// The file whose video stream is copied.
-        path: PathBuf,
+        /// The files whose video stream is copied, in the order they play. There is at least one.
+        paths: Vec<PathBuf>,
         /// Where the copy starts, in seconds (0 for the start). The copy starts at the keyframe at or before it.
         start_s: f64,
     },
@@ -100,6 +102,19 @@ impl EncodeJob {
         PathBuf::from(name)
     }
 
+    /// Where the list of files goes when several videos are copied one after the other (FFmpeg reads them from a
+    /// list, with its `concat` demuxer): next to the output. `None` for any other job.
+    fn concat_list_path(&self) -> Option<PathBuf> {
+        match &self.video {
+            VideoInput::Copy { paths, .. } if paths.len() > 1 => {
+                let mut name = self.output.as_os_str().to_owned();
+                name.push(".parts.txt");
+                Some(PathBuf::from(name))
+            }
+            _ => None,
+        }
+    }
+
     /// Checks that the job can run.
     pub fn validate(&self) -> Result<(), FfmpegError> {
         match (&self.video, &self.encoding) {
@@ -108,6 +123,9 @@ impl EncodeJob {
             }
             (VideoInput::Copy { .. }, Some(_)) => {
                 return Err(FfmpegError::InvalidJob("a copied video cannot be encoded"));
+            }
+            (VideoInput::Copy { paths, .. }, None) if paths.is_empty() => {
+                return Err(FfmpegError::InvalidJob("there is no video to copy"));
             }
             _ => {}
         }
@@ -166,13 +184,19 @@ impl EncodeJob {
                 args.push(format!("{frame_rate:.6}").into());
                 push_all(&mut args, ["-i", "pipe:0"]);
             }
-            VideoInput::Copy { path, start_s } => {
+            VideoInput::Copy { paths, start_s } => {
                 if *start_s > 0.0 {
                     args.push("-ss".into());
                     args.push(format!("{start_s:.6}").into());
                 }
-                args.push("-i".into());
-                args.push(path.as_os_str().to_owned());
+                if let Some(list) = self.concat_list_path() {
+                    push_all(&mut args, ["-f", "concat", "-safe", "0"]);
+                    args.push("-i".into());
+                    args.push(list.into_os_string());
+                } else {
+                    args.push("-i".into());
+                    args.push(paths[0].as_os_str().to_owned());
+                }
             }
         }
 
@@ -234,6 +258,25 @@ impl EncodeJob {
     }
 }
 
+/// The text of the list that FFmpeg's `concat` demuxer reads: a line for each file. The names are read from the folder
+/// of the list, so they are written whole, and a quote in a name is closed, escaped and opened again.
+fn concat_list_text(paths: &[PathBuf]) -> String {
+    let mut lines = String::new();
+    for path in paths {
+        let path = std::path::absolute(path).unwrap_or_else(|_| path.clone());
+        let quoted = path.to_string_lossy().replace('\'', "'\\''");
+        let _ = writeln!(lines, "file '{quoted}'");
+    }
+    lines
+}
+
+/// Removes the list of videos that was written for a job, if there is one.
+fn remove_list(list: Option<&Path>) {
+    if let Some(list) = list {
+        let _ = fs::remove_file(list);
+    }
+}
+
 fn push_all<const N: usize>(args: &mut Vec<OsString>, values: [&str; N]) {
     args.extend(values.into_iter().map(OsString::from));
 }
@@ -247,6 +290,8 @@ pub struct EncodeProcess {
     progress: Receiver<Progress>,
     partial: PathBuf,
     output: PathBuf,
+    /// The list of the videos that are copied one after the other, removed when the encode ends.
+    list: Option<PathBuf>,
 }
 
 impl EncodeProcess {
@@ -256,6 +301,11 @@ impl EncodeProcess {
         let partial = job.partial_path();
         if let Some(parent) = parent_folder(&job.output) {
             fs::create_dir_all(parent)?;
+        }
+
+        let list = job.concat_list_path();
+        if let (Some(path), VideoInput::Copy { paths, .. }) = (&list, &job.video) {
+            fs::write(path, concat_list_text(paths))?;
         }
 
         let mut command = command(tools.ffmpeg());
@@ -268,7 +318,13 @@ impl EncodeProcess {
             })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(FfmpegError::spawn("ffmpeg"))?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                remove_list(list.as_deref());
+                return Err(FfmpegError::spawn("ffmpeg")(error));
+            }
+        };
 
         let stdin = child.stdin.take();
         let stderr = child.stderr.take().map(collect_stderr);
@@ -288,6 +344,7 @@ impl EncodeProcess {
             progress,
             partial,
             output: job.output.clone(),
+            list,
         })
     }
 
@@ -322,6 +379,7 @@ impl EncodeProcess {
         let status = child.wait()?;
         let stderr = self.join_stderr();
         self.join_progress();
+        remove_list(self.list.as_deref());
 
         if status.success() {
             fs::rename(&self.partial, &self.output)?;
@@ -350,6 +408,7 @@ impl EncodeProcess {
             None => String::new(),
         };
         self.join_progress();
+        remove_list(self.list.as_deref());
         let _ = fs::remove_file(&self.partial);
         FfmpegError::Failed {
             tool: "ffmpeg",
@@ -365,6 +424,7 @@ impl EncodeProcess {
         }
         let _ = self.join_stderr();
         self.join_progress();
+        remove_list(self.list.as_deref());
         let _ = fs::remove_file(&self.partial);
     }
 
@@ -388,5 +448,80 @@ impl Drop for EncodeProcess {
         if self.child.is_some() {
             self.kill_and_clean();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn copy_job(paths: &[&str]) -> EncodeJob {
+        EncodeJob {
+            video: VideoInput::Copy {
+                paths: paths.iter().map(PathBuf::from).collect(),
+                start_s: 12.5,
+            },
+            audio: AudioInput::PcmStdin {
+                sample_rate: 48_000,
+                channels: 2,
+            },
+            encoding: None,
+            audio_bitrate_kbps: 192,
+            faststart: true,
+            duration_s: Some(30.0),
+            output: PathBuf::from("/out/flight.mp4"),
+        }
+    }
+
+    fn arguments(job: &EncodeJob) -> Vec<String> {
+        job.args(&job.partial_path())
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn one_video_is_copied_as_it_always_was() {
+        let job = copy_job(&["/in/a.mp4"]);
+        assert_eq!(job.concat_list_path(), None);
+        let args = arguments(&job);
+        let at = args.iter().position(|a| a == "-i").unwrap();
+        assert_eq!(args[at + 1], "/in/a.mp4");
+        assert!(!args.contains(&"concat".to_owned()));
+    }
+
+    #[test]
+    fn several_videos_are_read_from_a_list_that_starts_the_copy_where_asked() {
+        let job = copy_job(&["/in/a.mp4", "/in/it's b.mp4"]);
+        let path = job.concat_list_path().expect("a list for two videos");
+        assert_eq!(path, PathBuf::from("/out/flight.mp4.parts.txt"));
+        // A quote in a name is closed, escaped and opened again, as the list format wants.
+        let text = concat_list_text(&[PathBuf::from("/in/a.mp4"), PathBuf::from("/in/it's b.mp4")]);
+        assert_eq!(text, "file '/in/a.mp4'\nfile '/in/it'\\''s b.mp4'\n");
+
+        let args = arguments(&job);
+        let seek = args.iter().position(|a| a == "-ss").unwrap();
+        let input = args.iter().position(|a| a == "-i").unwrap();
+        assert!(
+            seek < input,
+            "the start is an option of the input: {args:?}"
+        );
+        assert_eq!(
+            args[input - 4..=input + 1],
+            [
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                "/out/flight.mp4.parts.txt"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_copy_of_no_video_is_not_a_job() {
+        let error = copy_job(&[]).validate().unwrap_err();
+        assert!(error.to_string().contains("no video to copy"), "{error}");
     }
 }

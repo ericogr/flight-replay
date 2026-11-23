@@ -17,6 +17,7 @@ pub mod discover;
 pub mod display;
 pub mod ffmpeg;
 pub mod font;
+pub mod footage;
 pub mod osd;
 pub mod overlay;
 pub mod paths;

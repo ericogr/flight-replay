@@ -22,6 +22,9 @@ wizard for Linux, Windows and macOS.
   editor. With only the sound, the picture is copied as it is.
 - **Several videos.** A queue renders many videos with the same settings, or all the videos of a folder. A video made
   of several recordings takes several `.osd` files, which are put one after the other.
+- **A flight in several files.** When the goggles split a flight into files, choose or drop all of them together, each
+  with its own `.osd` and `.srt`: they are drawn on and joined into one video in one run, with one continuous motor
+  sound, so there is nothing to join by hand before or after.
 - **Checks.** The result is checked after the render: the length of the picture and of the sound, and how well the OSD
   covers the video.
 
@@ -145,7 +148,17 @@ top right). The search order is in [docs/build.md](docs/build.md).
    "Reset all settings…", which brings every setting back to the default after asking you to confirm. It opens by
    itself, once, when FFmpeg is missing.
 2. **Input.** Drop the video on the window, or choose it. The `.osd` and `.srt` with the same name next to it are
-   opened by themselves. Choose the OSD font: one of the list ("Built in"), or the file for your firmware, a
+   opened by themselves. When the goggles recorded the flight in several files, choose or drop all the videos
+   together (several files at once, in the dialog or on the window): they are one flight, in the order of their names,
+   and the first one names the video that is written. **Add the next video…**, **Move up** and **Remove** change the
+   list; each video has its own `.osd` and `.srt`, found by name or chosen with the buttons of its line. The videos must
+   have the same picture size. If they also have the same codec and rate and only the sound is added, they are joined
+   without being encoded again; if the OSD or the SRT data are drawn, they are decoded and drawn one after the other
+   and encoded as one video. The OSD of each video is timed against its own recording, so the speed of each is
+   corrected on its own. What you ask for needs the file of **every** video: if one lacks its `.osd` or its `.srt`,
+   the step names the video and says what is left out of the render (the OSD and the sound need the `.osd`, the SRT
+   data need the `.srt`), and the steps of the OSD, the SRT data and the sound and the summary of the render say it
+   again. Choose the missing file on its line to put it back. Choose the OSD font: one of the list ("Built in"), or the file for your firmware, a
    `WS_..._24.png` sheet such as `WS_INAV_Europa_24.png`. The program carries the default font of INAV and a Betaflight
    font, each for 720p and 1080p videos; the one that suits the video is used. The step warns when the font is for
    another firmware than the `.osd` file. The fonts of the goggles' makers and of other designers are not included,

@@ -12,6 +12,7 @@ use std::process::Command;
 use flight_replay_core::cancel::CancelToken;
 use flight_replay_core::ffmpeg::{Tools, probe};
 use flight_replay_core::font::CharacterSize;
+use flight_replay_core::footage::Footage;
 use flight_replay_core::osd::{Coverage, OsdFile, OsdOptions, join};
 use flight_replay_core::render::{
     EncoderChoice, OsdLayer, OutputPlan, Overwrite, RenderPlan, VideoOutput, render,
@@ -125,10 +126,9 @@ fn a_joined_video_is_rendered_with_the_osd_and_the_sound_of_both_files() {
     let joined = join(twice(), 0.0).unwrap();
 
     let plan = RenderPlan {
-        video,
-        info,
+        footage: Footage::single(video, info),
         osd: Some(joined.file),
-        osd_path: Some(common::fixture("clip-3s.osd")),
+        osd_parts: joined.parts,
         osd_layer: Some(OsdLayer {
             font: common::synthetic_sheet(CharacterSize::Small),
             options: OsdOptions::default(),

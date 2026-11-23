@@ -10,6 +10,7 @@ use flight_replay_core::cancel::CancelToken;
 use flight_replay_core::ffmpeg::install::{Build, install_here};
 use flight_replay_core::ffmpeg::{self, Tools};
 use flight_replay_core::font::{BundledFont, FontSheet, OsdFont};
+use flight_replay_core::footage::VideoPart;
 use flight_replay_core::osd::{OsdFile, join};
 use flight_replay_core::paths::{file_name, parent_folder};
 use flight_replay_core::render::{self, FlightDefaults, LeftOut, RenderPlan, Skipped};
@@ -23,7 +24,7 @@ use iced::futures::channel::mpsc::UnboundedSender;
 use crate::message::{InstallMessage, Message, RenderMessage};
 use crate::preview::{self, PreviewRequest};
 use crate::state::{
-    FileKind, FolderQueue, FontSource, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, QueueItem,
+    FileKind, FolderQueue, FontSource, LoadedFont, LoadedOsd, LoadedSrt, Placing, QueueItem,
 };
 
 /// Runs `work` on its own thread and waits for it without blocking the interface.
@@ -65,19 +66,27 @@ pub fn detect_encoders(tools: Arc<Tools>) -> Task<Message> {
     })
 }
 
-/// Opens a video and reads its description.
-pub fn load_video(tools: Arc<Tools>, path: PathBuf) -> Task<Message> {
+/// Opens videos and reads their descriptions. `placing` says whether they are the flight or follow the ones that are
+/// open: it is given back with the answer.
+pub fn load_videos(tools: Arc<Tools>, paths: Vec<PathBuf>, placing: Placing) -> Task<Message> {
     Task::perform(
         job(move || {
-            let info = ffmpeg::probe(&tools, &path).map_err(|e| e.to_string())?;
-            Ok(Arc::new(LoadedVideo { path, info }))
+            paths
+                .into_iter()
+                .map(|path| {
+                    let info = ffmpeg::probe(&tools, &path)
+                        .map_err(|e| format!("{}: {e}", file_name(&path)))?;
+                    Ok(VideoPart { path, info })
+                })
+                .collect()
         }),
-        Message::VideoLoaded,
+        move |result| Message::VideosLoaded(placing, result),
     )
 }
 
-/// Opens the `.osd` files of one video, and puts them on one timeline when there are several.
-pub fn load_osd(paths: Vec<PathBuf>) -> Task<Message> {
+/// Opens the `.osd` files of the flight, in the order they play, and puts them on one timeline. `generation` is the
+/// number of this load: it is given back with the answer, so that an answer that was overtaken can be told.
+pub fn load_osd(generation: u64, paths: Vec<PathBuf>) -> Task<Message> {
     Task::perform(
         job(move || {
             let mut files = Vec::with_capacity(paths.len());
@@ -95,21 +104,27 @@ pub fn load_osd(paths: Vec<PathBuf>) -> Task<Message> {
                 profile,
             }))
         }),
-        Message::OsdLoaded,
+        move |result| Message::OsdLoaded(generation, result),
     )
 }
 
-/// Opens an `.srt` file.
-pub fn load_srt(path: PathBuf) -> Task<Message> {
+/// Opens the `.srt` files of the flight, each with the time its video starts at on the timeline of the whole video,
+/// and puts them on that timeline. `generation` is given back with the answer, as for [`load_osd`].
+pub fn load_srt(generation: u64, files: Vec<(PathBuf, f64)>) -> Task<Message> {
     Task::perform(
         job(move || {
-            let file = SrtFile::open(&path).map_err(|e| e.to_string())?;
+            let mut opened = Vec::with_capacity(files.len());
+            for (path, start_s) in &files {
+                let file = SrtFile::open(path).map_err(|e| format!("{}: {e}", file_name(path)))?;
+                opened.push((file, *start_s));
+            }
+            let parts: Vec<(&SrtFile, f64)> = opened.iter().map(|(f, s)| (f, *s)).collect();
             Ok(Arc::new(LoadedSrt {
-                path,
-                file: Arc::new(file),
+                paths: files.into_iter().map(|(path, _)| path).collect(),
+                file: Arc::new(SrtFile::join(&parts)),
             }))
         }),
-        Message::SrtLoaded,
+        move |result| Message::SrtLoaded(generation, result),
     )
 }
 
@@ -141,35 +156,60 @@ pub fn load_bundled_font(font: &'static BundledFont) -> Task<Message> {
     )
 }
 
-/// Reads the telemetry of an `.osd` file. It takes about a second for a whole flight.
-pub fn decode_telemetry(path: PathBuf, osd: Arc<OsdFile>) -> Task<Message> {
-    let answer_for = path;
+/// Reads the telemetry of the `.osd` files of the load with this number. It takes about a second for a whole flight.
+pub fn decode_telemetry(generation: u64, osd: Arc<OsdFile>) -> Task<Message> {
     Task::perform(
         job(move || {
             Recording::decode(&osd, LoadOptions::default())
                 .map(Arc::new)
                 .map_err(|e| e.to_string())
         }),
-        move |result| Message::TelemetryReady(answer_for.clone(), result),
+        move |result| Message::TelemetryReady(generation, result),
     )
 }
 
 /// Opens a dialog of the system with `open` and waits for what the user chooses. The answer is the message that `then`
-/// makes from it (`None` is a dialog closed without a choice), wrapped in [`Message::Dialog`] so the program knows the
-/// dialog is closed. Every dialog goes through here.
+/// makes from it, wrapped in [`Message::Dialog`] so the program knows the dialog is closed. Every dialog goes through
+/// here.
 ///
 /// `open` runs when the task is run, not when it is made: on some systems a dialog opens as soon as its future exists.
-fn ask<F>(
+fn ask<T, F>(
+    open: impl FnOnce() -> F + Send + 'static,
+    then: impl Fn(T) -> Message + Send + 'static,
+) -> Task<Message>
+where
+    T: Send + 'static,
+    F: Future<Output = T> + Send + 'static,
+{
+    Task::perform(async move { open().await }, move |answer| {
+        Message::Dialog(Box::new(then(answer)))
+    })
+}
+
+/// [`ask`] for a dialog that chooses one file or folder: the answer is its path, or `None` when the dialog was closed
+/// without choosing.
+fn ask_path<F>(
     open: impl FnOnce() -> F + Send + 'static,
     then: impl Fn(Option<PathBuf>) -> Message + Send + 'static,
 ) -> Task<Message>
 where
     F: Future<Output = Option<rfd::FileHandle>> + Send + 'static,
 {
-    Task::perform(
-        async move { open().await.map(|handle| handle.path().to_path_buf()) },
-        move |path| Message::Dialog(Box::new(then(path))),
+    ask(
+        move || async move { open().await.map(|handle| handle.path().to_path_buf()) },
+        then,
     )
+}
+
+/// A dialog that chooses files of `kind`, starting in `start_dir`.
+fn file_dialog(kind: FileKind, start_dir: Option<PathBuf>) -> rfd::AsyncFileDialog {
+    let mut dialog = rfd::AsyncFileDialog::new()
+        .set_title(format!("Choose the {}", kind.label()))
+        .add_filter(kind.label(), kind.extensions());
+    if let Some(dir) = start_dir {
+        dialog = dialog.set_directory(dir);
+    }
+    dialog
 }
 
 /// Asks the user for a file of `kind`. `then` makes the message of the answer, which is `None` when the dialog was
@@ -179,15 +219,24 @@ pub fn pick_file(
     start_dir: Option<PathBuf>,
     then: impl Fn(Option<PathBuf>) -> Message + Send + 'static,
 ) -> Task<Message> {
+    ask_path(move || file_dialog(kind, start_dir).pick_file(), then)
+}
+
+/// Asks the user for one or several videos. `then` makes the message of the answer, which has no video when the
+/// dialog was closed without choosing.
+pub fn pick_videos(
+    start_dir: Option<PathBuf>,
+    then: impl Fn(Vec<PathBuf>) -> Message + Send + 'static,
+) -> Task<Message> {
     ask(
-        move || {
-            let mut dialog = rfd::AsyncFileDialog::new()
-                .set_title(format!("Choose the {}", kind.label()))
-                .add_filter(kind.label(), kind.extensions());
-            if let Some(dir) = start_dir {
-                dialog = dialog.set_directory(dir);
-            }
-            dialog.pick_file()
+        move || async move {
+            file_dialog(FileKind::Video, start_dir)
+                .pick_files()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|handle| handle.path().to_path_buf())
+                .collect::<Vec<_>>()
         },
         then,
     )
@@ -195,7 +244,7 @@ pub fn pick_file(
 
 /// Asks the user for a folder.
 pub fn pick_folder(title: &'static str, then: fn(Option<PathBuf>) -> Message) -> Task<Message> {
-    ask(
+    ask_path(
         move || rfd::AsyncFileDialog::new().set_title(title).pick_folder(),
         then,
     )
@@ -203,7 +252,7 @@ pub fn pick_folder(title: &'static str, then: fn(Option<PathBuf>) -> Message) ->
 
 /// Asks the user where to save the output.
 pub fn pick_output(suggested: PathBuf) -> Task<Message> {
-    ask(
+    ask_path(
         move || {
             let mut dialog = rfd::AsyncFileDialog::new()
                 .set_title("Save the video as")

@@ -16,7 +16,9 @@ use std::time::Instant;
 use flight_replay_core::cancel::CancelToken;
 use flight_replay_core::ffmpeg::{Tools, probe};
 use flight_replay_core::font::FontSheet;
-use flight_replay_core::osd::{OsdFile, OsdOptions};
+use flight_replay_core::footage::Footage;
+use flight_replay_core::osd::{JoinPart, OsdFile, OsdOptions};
+use flight_replay_core::paths::file_name;
 use flight_replay_core::render::{
     EncoderChoice, Event, OsdLayer, OutputPlan, Overwrite, RenderPlan, SrtLayer, VideoOutput,
     Window, render,
@@ -50,11 +52,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tools = Tools::locate(None)?;
     let info = probe(&tools, &video)?;
 
+    let osd = OsdFile::open(&osd_path)?;
     let plan = RenderPlan {
-        video,
-        info,
-        osd: Some(OsdFile::open(&osd_path)?),
-        osd_path: Some(osd_path),
+        footage: Footage::single(video, info),
+        osd_parts: vec![JoinPart::alone(file_name(&osd_path), &osd)],
+        osd: Some(osd),
         osd_layer: Some(OsdLayer {
             font: FontSheet::open(&font.ok_or("--font is required")?)?,
             options: OsdOptions::default(),

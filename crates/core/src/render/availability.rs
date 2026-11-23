@@ -7,6 +7,9 @@
 //! `.osd` file of a firmware whose telemetry can be read, with the throttle in it. What a video lacks of these is
 //! left out of its render, with the reason, instead of stopping it: a video with only an `.srt` file still gets the
 //! SRT data. The application and the folder planner both work this out here, so they agree.
+//!
+//! A flight of several videos has an `.osd` and an `.srt` for each. What is drawn or made follows the whole flight, so
+//! it is left out when any video lacks the file it needs, and the reason names the videos.
 
 use std::fmt;
 
@@ -68,6 +71,28 @@ impl Availability {
             srt: (!srt).then(|| "There is no .srt file.".to_owned()),
             sound,
         }
+    }
+
+    /// Names the videos of a flight that lack an `.osd` file and the videos that lack an `.srt` file, so that the
+    /// reasons say which ones. A list that is empty changes nothing: the reason stays the general one. The videos
+    /// without an `.osd` are named when the `.osd` given to [`Availability::new`] is `None`, which is what a flight
+    /// with one missing has.
+    #[must_use]
+    pub fn naming(mut self, without_osd: &[String], without_srt: &[String]) -> Self {
+        if !without_osd.is_empty() {
+            let names = without_osd.join(", ");
+            self.osd = Some(format!("There is no .osd file for {names}."));
+            self.sound = Some(format!(
+                "There is no .osd file for {names}: the sound follows the telemetry stored in it."
+            ));
+        }
+        if !without_srt.is_empty() {
+            self.srt = Some(format!(
+                "There is no .srt file for {}.",
+                without_srt.join(", ")
+            ));
+        }
+        self
     }
 
     /// Adds why the telemetry cannot drive the sound, if it cannot (the throttle is not in the recording, say). An
@@ -199,6 +224,32 @@ mod tests {
                 .to_string()
                 .starts_with("Left out: the motor sound.")
         );
+    }
+
+    #[test]
+    fn the_reasons_name_the_videos_that_lack_a_file() {
+        let none = Availability::new(None, true, false).naming(
+            &["B.mp4".to_owned(), "C.mp4".to_owned()],
+            &["C.mp4".to_owned()],
+        );
+        assert_eq!(
+            none.osd.as_deref(),
+            Some("There is no .osd file for B.mp4, C.mp4.")
+        );
+        assert!(
+            none.sound
+                .as_deref()
+                .is_some_and(|r| r.starts_with("There is no .osd file for B.mp4, C.mp4:")),
+            "{none:?}"
+        );
+        assert_eq!(
+            none.srt.as_deref(),
+            Some("There is no .srt file for C.mp4.")
+        );
+
+        // Nothing named, nothing changed.
+        let general = Availability::new(None, true, false);
+        assert_eq!(general.clone().naming(&[], &[]), general);
     }
 
     #[test]

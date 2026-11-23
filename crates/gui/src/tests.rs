@@ -251,7 +251,7 @@ fn dropping_a_video_loads_the_files_that_go_with_it() {
         return;
     };
     app.send(Message::FileDropped(fixture("clip-3s.mp4")));
-    assert!(app.app.video.is_some(), "the video is loaded");
+    assert!(app.app.footage.is_some(), "the video is loaded");
     assert!(app.app.osd.is_some(), "the .osd next to it is loaded");
     assert!(app.app.srt.is_some(), "the .srt next to it is loaded");
     assert!(app.app.file_errors.is_empty(), "{:?}", app.app.file_errors);
@@ -263,7 +263,7 @@ fn dropping_a_video_loads_the_files_that_go_with_it() {
     );
 
     app.send(Message::Clear(FileKind::Video));
-    assert!(app.app.video.is_none() && app.app.osd.is_none());
+    assert!(app.app.footage.is_none() && app.app.osd.is_none());
 }
 
 #[test]
@@ -582,6 +582,358 @@ fn a_video_with_only_an_srt_file_is_rendered_with_the_srt_data() {
     assert!(outcome.audio_stats.is_none(), "no sound was made");
 }
 
+/// Two files of one flight in the folder of the harness: copies of the clip, with the files that `with` names.
+fn two_files_of_a_flight(harness: &Harness, with: [&[&str]; 2]) -> [PathBuf; 2] {
+    [
+        clip_with(harness, "AvatarG0001", with[0]),
+        clip_with(harness, "AvatarG0002", with[1]),
+    ]
+}
+
+/// Drops the files together, as the system does when several are dragged at once: every drop arrives before the
+/// program has had time to act on the first.
+fn drop_together(harness: &mut Harness, files: &[PathBuf]) {
+    let tasks: Vec<_> = files
+        .iter()
+        .map(|file| harness.app.update(Message::FileDropped(file.clone())))
+        .collect();
+    for task in tasks {
+        harness.run(task);
+    }
+}
+
+#[test]
+fn videos_dropped_together_are_one_flight_with_the_files_of_each() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let [first, second] = two_files_of_a_flight(&app, [&["osd", "srt"], &["osd", "srt"]]);
+    // Dropped out of order: the flight follows the names.
+    drop_together(&mut app, &[second.clone(), first.clone()]);
+
+    let paths: Vec<_> = app.app.clips.iter().map(|c| c.video.path.clone()).collect();
+    assert_eq!(
+        paths,
+        [first, second],
+        "one flight, in the order of the names"
+    );
+    assert!(app.app.file_errors.is_empty(), "{:?}", app.app.file_errors);
+
+    let footage = app
+        .app
+        .footage
+        .as_ref()
+        .expect("the videos on one timeline");
+    assert!(
+        (footage.info().duration_s - 6.0).abs() < 0.1,
+        "{}",
+        footage.info().duration_s
+    );
+    assert!((footage.start_s(1) - 3.0).abs() < 0.1);
+
+    let osd = app.app.osd.as_ref().expect("the recordings of both videos");
+    assert_eq!(osd.paths.len(), 2);
+    assert_eq!(osd.parts.len(), 2);
+    let srt = app.app.srt.as_ref().expect("the subtitles of both videos");
+    assert_eq!(srt.paths.len(), 2);
+    assert!(
+        srt.file.duration_s() > footage.start_s(1) + 2.5,
+        "the subtitles of the second video follow those of the first: {}",
+        srt.file.duration_s()
+    );
+    let timeline = app.app.timeline().expect("the recordings fit the videos");
+    assert_eq!(timeline.scales().count(), 2, "a scale for each video");
+    assert!(app.app.telemetry.is_some(), "the telemetry of both is read");
+
+    // The screen lists them in order, each with its files.
+    app.send(Message::GoTo(Step::Input));
+    assert!(app.shows("AvatarG0001.mp4") && app.shows("AvatarG0002.mp4"));
+    assert!(app.shows("AvatarG0001.osd") && app.shows("AvatarG0002.srt"));
+    app.snapshot("10a-two-videos");
+
+    // The output is named after the first video.
+    assert!(
+        app.app
+            .output_path
+            .ends_with("AvatarG0001_flight-replay.mp4"),
+        "{}",
+        app.app.output_path
+    );
+}
+
+#[test]
+fn a_video_dropped_by_itself_replaces_the_flight_as_it_always_did() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let [first, second] = two_files_of_a_flight(&app, [&["osd"], &["osd"]]);
+    drop_together(&mut app, &[first, second.clone()]);
+    assert_eq!(app.app.clips.len(), 2);
+
+    app.send(Message::FileDropped(second.clone()));
+    assert_eq!(
+        app.app.clips.len(),
+        1,
+        "a video of its own is a flight of its own"
+    );
+    assert_eq!(app.app.clips[0].video.path, second);
+}
+
+#[test]
+fn videos_are_added_taken_out_and_put_in_order() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let [first, second] = two_files_of_a_flight(&app, [&["osd"], &["osd"]]);
+    app.send(Message::FileDropped(first.clone()));
+    assert_eq!(app.app.clips.len(), 1);
+
+    app.send(Message::VideosAdded(vec![second.clone()]));
+    assert_eq!(app.app.clips.len(), 2);
+    assert!(app.app.osd.is_some() && app.app.osd.as_ref().unwrap().parts.len() == 2);
+
+    // The same video is not added twice.
+    app.send(Message::VideosAdded(vec![second.clone()]));
+    assert_eq!(app.app.clips.len(), 2);
+    assert!(
+        app.app
+            .notices
+            .iter()
+            .any(|n| n.contains("in the flight already"))
+    );
+
+    app.send(Message::MoveVideoUp(1));
+    assert_eq!(app.app.clips[0].video.path, second);
+    assert!(
+        app.app
+            .output_path
+            .ends_with("AvatarG0002_flight-replay.mp4"),
+        "the output follows the first video"
+    );
+
+    app.send(Message::RemoveVideo(0));
+    assert_eq!(app.app.clips.len(), 1);
+    assert_eq!(app.app.clips[0].video.path, first);
+    assert_eq!(app.app.osd.as_ref().unwrap().parts.len(), 1);
+}
+
+#[test]
+fn videos_of_another_size_are_not_joined() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let tools = Tools::locate(None).expect("the tools");
+    let big = app.path("big.mp4");
+    let status = std::process::Command::new(tools.ffmpeg())
+        .args(["-v", "error", "-y", "-i"])
+        .arg(fixture("clip-3s.mp4"))
+        .args(["-vf", "scale=640:360", "-t", "0.5"])
+        .arg(&big)
+        .status()
+        .expect("FFmpeg ran");
+    assert!(status.success(), "a smaller video was made");
+
+    app.send(Message::FileDropped(fixture("clip-3s.mp4")));
+    app.send(Message::VideosAdded(vec![big]));
+    assert_eq!(app.app.clips.len(), 1, "the flight is as it was");
+    app.send(Message::GoTo(Step::Input));
+    assert!(
+        app.app
+            .file_error(FileKind::Video)
+            .is_some_and(|e| e.contains("1280x720") && e.contains("640x360")),
+        "{:?}",
+        app.app.file_errors
+    );
+    assert!(app.shows(
+        "clip-3s.mp4 is 1280x720, but big.mp4 is 640x360: they do not belong to the same flight"
+    ));
+}
+
+#[test]
+fn a_video_without_an_srt_is_flagged_where_the_files_are_chosen_and_in_every_step() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let font = app.path("font.png");
+    write_font(&font);
+    app.send(Message::FileDropped(font));
+    let [first, second] = two_files_of_a_flight(&app, [&["osd", "srt"], &["osd"]]);
+    drop_together(&mut app, &[first, second]);
+    app.app.settings.draw_srt = true;
+
+    // The Input step names the video and says what is lost.
+    app.send(Message::GoTo(Step::Input));
+    assert!(app.shows(
+        "There is no .srt file for AvatarG0002.mp4: the SRT data will be left out of the render. Choose the file here, or go on without it."
+    ));
+    assert!(app.shows("None found next to AvatarG0002.mp4."));
+    assert!(
+        app.app.srt.is_none(),
+        "the subtitles are read when every video has them"
+    );
+    app.snapshot("10b-one-srt-missing");
+
+    // The step of the SRT data says it too, and the switch cannot be turned on.
+    app.send(Message::GoTo(Step::Srt));
+    assert!(app.shows(
+        "There is no .srt file for AvatarG0002.mp4. Go back to the Input step to choose one, or go on: the video is then rendered without the SRT data."
+    ));
+    assert!(!app.app.draw_srt_on());
+
+    // The summary of the render leaves it out with the reason.
+    app.send(Message::GoTo(Step::Render));
+    assert!(app.shows("Left out: the SRT data. There is no .srt file for AvatarG0002.mp4."));
+    assert!(
+        app.app
+            .build_plan()
+            .is_ok_and(|plan| plan.srt_layer.is_none())
+    );
+
+    // Choosing the file puts it back.
+    app.send(Message::GoTo(Step::Input));
+    app.send(Message::ClipFileChosen(
+        FileKind::Srt,
+        1,
+        Some(fixture("clip-3s.srt")),
+    ));
+    assert!(app.app.srt.is_some());
+    assert!(app.app.draw_srt_on(), "the SRT data are drawn again");
+}
+
+#[test]
+fn a_video_without_an_osd_leaves_out_the_osd_and_the_sound_and_says_which_video() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let font = app.path("font.png");
+    write_font(&font);
+    app.send(Message::FileDropped(font));
+    let [first, second] = two_files_of_a_flight(&app, [&["osd", "srt"], &["srt"]]);
+    drop_together(&mut app, &[first, second]);
+
+    app.send(Message::GoTo(Step::Input));
+    assert!(app.shows(
+        "There is no .osd file for AvatarG0002.mp4: the OSD and the motor sound will be left out of the render. Choose the file here, or go on without it."
+    ));
+    assert!(
+        app.app.osd.is_none(),
+        "the recordings are read when every video has one"
+    );
+    assert!(app.app.srt.is_some(), "the subtitles are there for both");
+
+    app.send(Message::GoTo(Step::Overlay));
+    assert!(app.shows(
+        "There is no .osd file for AvatarG0002.mp4. Go back to the Input step to choose one, or go on: the video is then rendered without the OSD."
+    ));
+    assert!(app.clicks("Draw the OSD on the video").is_empty());
+
+    app.send(Message::GoTo(Step::Sound));
+    assert!(app.shows(
+        "There is no .osd file for AvatarG0002.mp4: the sound follows the telemetry stored in it."
+    ));
+    assert!(app.clicks("Make the motor sound").is_empty());
+    assert!(!app.app.sound_on());
+
+    app.send(Message::GoTo(Step::Render));
+    assert!(app.shows("Left out: the OSD. There is no .osd file for AvatarG0002.mp4."));
+    assert!(app.shows(
+        "Left out: the motor sound. There is no .osd file for AvatarG0002.mp4: the sound follows the telemetry stored in it."
+    ));
+}
+
+#[test]
+fn a_video_with_no_files_is_flagged_too() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    app.send(Message::FileDropped(clip_with(&app, "bare", &[])));
+    app.app.settings.draw_srt = true;
+    app.send(Message::GoTo(Step::Input));
+    assert!(app.shows(
+        "There is no .osd file for bare.mp4: the OSD and the motor sound will be left out of the render. Choose the file here, or go on without it."
+    ));
+    assert!(app.shows(
+        "There is no .srt file for bare.mp4: the SRT data will be left out of the render. Choose the file here, or go on without it."
+    ));
+}
+
+#[test]
+fn a_flight_of_two_videos_is_rendered_as_one_video() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let font = app.path("font.png");
+    write_font(&font);
+    app.send(Message::FileDropped(font));
+    let [first, second] = two_files_of_a_flight(&app, [&["osd", "srt"], &["osd", "srt"]]);
+    drop_together(&mut app, &[first.clone(), second]);
+    app.app.settings.draw_srt = true;
+    app.send(Message::GoTo(Step::Render));
+    let total = app.app.footage.as_ref().unwrap().info().duration_s;
+    assert!(app.shows(&format!(
+        "Videos: AvatarG0001.mp4, AvatarG0002.mp4 ({}), joined into one",
+        display::clock_tenths(total)
+    )));
+    assert!(app.shows("Adds: the OSD, the SRT data, the motor sound"));
+    let output = app.path("flight.mp4");
+    app.send(Message::Output(OutputEdit::Path(
+        output.display().to_string(),
+    )));
+    app.snapshot("10c-render-two-videos");
+
+    app.click("Start the render");
+    let RenderState::Finished(result) = &app.app.render else {
+        panic!("the render is over");
+    };
+    let outcome = result.as_ref().expect("the render succeeded");
+    assert_eq!(outcome.output, output);
+    let check = outcome.check.as_ref().expect("the output was checked");
+    assert_eq!(check.frames, 360, "the frames of both videos");
+
+    let tools = Tools::locate(None).expect("the tools");
+    let info = probe(&tools, &output).expect("the output is a video");
+    assert!((info.duration_s - 6.0).abs() < 0.1, "{}", info.duration_s);
+    assert!(info.audio_streams > 0);
+    assert!((info.audio_duration_s.unwrap() - info.duration_s).abs() < 0.1);
+
+    // The flight can be queued too, and is named after its videos.
+    app.send(Message::QueueAdd);
+    assert_eq!(app.app.queue.items[0].title, "AvatarG0001.mp4 and 1 more");
+}
+
+#[test]
+fn the_picture_and_the_playing_of_the_second_video_come_from_the_second_file() {
+    let Some(mut app) = Harness::start() else {
+        return;
+    };
+    let font = app.path("font.png");
+    write_font(&font);
+    app.send(Message::FileDropped(font));
+    let [first, second] = two_files_of_a_flight(&app, [&["osd", "srt"], &["osd", "srt"]]);
+    drop_together(&mut app, &[first, second]);
+    app.send(Message::GoTo(Step::Overlay));
+
+    // At the start of the second video the picture is the first of that file, with the first screen of its recording.
+    app.send(Message::PreviewTime(3.5));
+    app.send(Message::PreviewTimeReleased);
+    assert!(
+        app.app.preview.error.is_none(),
+        "{:?}",
+        app.app.preview.error
+    );
+    assert!(
+        app.app.preview.handle.is_some(),
+        "a picture of the second video"
+    );
+
+    // A play that starts before the join goes through it and ends by itself.
+    app.send(Message::PreviewTime(2.5));
+    let pictures = app.send(Message::PlayPicture);
+    assert!(pictures > 5, "the pictures of both videos came: {pictures}");
+    assert!(!app.app.is_playing());
+    assert!(app.app.play_error.is_none() && app.app.preview.error.is_none());
+}
+
 #[test]
 fn a_firmware_without_telemetry_gets_the_osd_and_no_sound() {
     let Some(mut app) = Harness::start() else {
@@ -726,7 +1078,13 @@ fn a_video_made_of_two_recordings_takes_two_osd_files() {
         (joined.file.duration_s() - 2.0 * single.duration_s()).abs() < 0.002,
         "the durations add up"
     );
-    let video_s = app.app.video.as_ref().expect("the video").info.duration_s;
+    let video_s = app
+        .app
+        .footage
+        .as_ref()
+        .expect("the video")
+        .info()
+        .duration_s;
     assert_eq!(Coverage::new(&joined.parts, video_s).warning(), None);
     app.snapshot("2-input-two-osd");
 
@@ -758,7 +1116,13 @@ fn the_screen_says_when_the_osd_files_do_not_cover_the_video() {
     app.send(Message::OsdAdded(Some(second)));
 
     let osd = app.app.osd.as_ref().expect("the joined .osd");
-    let video_s = app.app.video.as_ref().expect("the video").info.duration_s;
+    let video_s = app
+        .app
+        .footage
+        .as_ref()
+        .expect("the video")
+        .info()
+        .duration_s;
     let warning = Coverage::new(&osd.parts, video_s)
         .warning()
         .expect("the files run past the video");

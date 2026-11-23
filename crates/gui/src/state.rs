@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use flight_replay_core::cancel::CancelToken;
-use flight_replay_core::ffmpeg::VideoInfo;
 use flight_replay_core::ffmpeg::install::Progress;
 use flight_replay_core::font::{BundledFont, OsdFont};
+use flight_replay_core::footage::VideoPart;
 use flight_replay_core::osd::{JoinPart, OsdFile};
 use flight_replay_core::paths::file_name;
 use flight_replay_core::render::{Outcome, RenderPlan, Stage, Window};
@@ -23,25 +23,32 @@ use serde::{Deserialize, Serialize};
 
 use crate::wizard::PreviewLayers;
 
-/// A video that is open.
-#[derive(Debug)]
-pub struct LoadedVideo {
-    pub path: PathBuf,
-    pub info: VideoInfo,
+/// One video of the flight and the files chosen for it. A flight is one video, or several that follow one another,
+/// each with the `.osd` and the `.srt` the goggles recorded with it.
+#[derive(Debug, Clone)]
+pub struct Clip {
+    /// The file, and what is known about it.
+    pub video: VideoPart,
+    /// The `.osd` files of this video, in the order they play. None when it has none. More than one only when this is
+    /// the only video of the flight and it is made of several recordings.
+    pub osd: Vec<PathBuf>,
+    /// The `.srt` file of this video.
+    pub srt: Option<PathBuf>,
 }
 
-impl LoadedVideo {
-    /// The time of the last frame, in seconds. A picture cannot be made at the very end of the video, where no frame
-    /// starts, so this is the last time the preview can show.
-    pub fn last_frame_s(&self) -> f64 {
-        (self.info.duration_s - 1.0 / self.info.nominal_frame_rate).max(0.0)
-    }
+/// How videos that were opened go into the flight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placing {
+    /// They are the flight: what was open is closed.
+    Replace,
+    /// They follow the videos that are open.
+    Append,
 }
 
-/// An `.osd` file that is open.
+/// The `.osd` files of the flight that are open.
 #[derive(Debug)]
 pub struct LoadedOsd {
-    /// Every file, in the order they play. More than one when the video is a join of several recordings. There is
+    /// Every file, in the order they play: those of the first video, then those of the second, and so on. There is
     /// always at least one.
     pub paths: Vec<PathBuf>,
     /// The screens of all the files, on one timeline.
@@ -58,10 +65,12 @@ impl LoadedOsd {
     }
 }
 
-/// An `.srt` file that is open.
+/// The `.srt` files of the flight that are open.
 #[derive(Debug)]
 pub struct LoadedSrt {
-    pub path: PathBuf,
+    /// Every file, in the order of the videos. There is always at least one.
+    pub paths: Vec<PathBuf>,
+    /// The subtitles of all the files, on the timeline of the whole video.
     pub file: Arc<SrtFile>,
 }
 
@@ -288,7 +297,11 @@ pub struct FolderQueue {
 impl QueueItem {
     /// An item for a plan that was just made.
     pub fn new(plan: RenderPlan) -> Self {
-        let title = file_name(&plan.video);
+        let videos = plan.footage.parts();
+        let title = match videos.len() {
+            1 => file_name(&videos[0].path),
+            more => format!("{} and {} more", file_name(&videos[0].path), more - 1),
+        };
         Self {
             title,
             plan: Arc::new(plan),
@@ -417,30 +430,6 @@ impl StretchInput {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_last_time_that_can_be_shown_is_the_last_frame() {
-        let video = |duration_s, nominal_frame_rate| LoadedVideo {
-            path: PathBuf::from("a.mp4"),
-            info: VideoInfo {
-                codec: "h264".into(),
-                width: 1280,
-                height: 720,
-                frame_rate: nominal_frame_rate,
-                nominal_frame_rate,
-                duration_s,
-                frame_count: 0,
-                audio_streams: 0,
-                audio_duration_s: None,
-            },
-        };
-        assert!((video(3.0, 60.0).last_frame_s() - (3.0 - 1.0 / 60.0)).abs() < 1e-12);
-        assert_eq!(
-            video(0.0, 60.0).last_frame_s(),
-            0.0,
-            "a video with no length"
-        );
-    }
 
     #[test]
     fn a_typed_number_may_have_spaces_and_a_decimal_comma() {

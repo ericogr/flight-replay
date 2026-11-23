@@ -21,12 +21,14 @@ pub fn view(app: &FlightReplay) -> Element<'_, Message> {
         .on_toggle_maybe(can_make.then_some(Message::MakeSound));
 
     let mut items = vec![toggle.into()];
-    if app.osd.is_none() {
-        items.push(hint(
+    match (&app.osd, app.files_allow().sound) {
+        // With several videos the reason names the ones that have no .osd file.
+        (None, Some(reason)) if app.clips.len() > 1 => items.push(problem(reason)),
+        (None, _) => items.push(hint(
             "There is no .osd file. The sound follows the telemetry stored in it.",
-        ));
-    } else if let Some(reason) = app.files_allow().sound {
-        items.push(problem(reason));
+        )),
+        (Some(_), Some(reason)) => items.push(problem(reason)),
+        (Some(_), None) => {}
     }
     if !can_make && !app.busy.telemetry {
         items.push(hint(

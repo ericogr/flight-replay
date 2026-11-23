@@ -18,14 +18,15 @@ use flight_replay_core::display::clock_tenths;
 
 /// The preview picture and the slider that chooses its time.
 pub fn preview_block(app: &FlightReplay, masks: bool) -> Element<'_, Message> {
-    let Some(video) = &app.video else {
+    let Some(footage) = &app.footage else {
         return hint("Open a video to see it here.");
     };
-    let duration = video.info.duration_s.max(0.1);
+    let info = footage.info();
+    let duration = info.duration_s.max(0.1);
     let time = row![
         text(clock_tenths(app.preview.time_s)).width(Length::Fixed(60.0)),
         slider(
-            0.0..=video.last_frame_s().max(0.1),
+            0.0..=footage.last_frame_s().max(0.1),
             app.preview.time_s,
             Message::PreviewTime
         )
@@ -70,11 +71,11 @@ pub fn preview_block(app: &FlightReplay, masks: bool) -> Element<'_, Message> {
     ]
     .spacing(8);
     // The picture is a preview. Saying so keeps it from being taken for what the render will give.
-    let (width, height) = shown_size(video.info.width, video.info.height);
-    if width != video.info.width {
+    let (width, height) = shown_size(info.width, info.height);
+    if width != info.width {
         items = items.push(hint(format!(
             "Preview at reduced quality: {width}×{height}, while the video is {}×{}. The video you render keeps its full quality.",
-            video.info.width, video.info.height
+            info.width, info.height
         )));
     }
     // While the preview plays the picture is made again and again, and a note that comes and goes would shift the
@@ -123,7 +124,7 @@ pub fn play_controls(app: &FlightReplay, play: Option<Message>) -> Element<'_, M
 
 /// The picture played alone, without sound, to check the layer of the step in motion. `what` names the layer.
 pub fn picture_controls<'a>(app: &'a FlightReplay, what: &str) -> Element<'a, Message> {
-    let can_play = app.video.is_some() && !app.is_playing();
+    let can_play = app.footage.is_some() && !app.is_playing();
     column![
         hint(format!(
             "Choose the moment on the slider, then play it to see {what} in motion. There is no sound here; the motor sound has its own step. {}",
@@ -160,9 +161,23 @@ pub fn sync_block(app: &FlightReplay) -> Element<'_, Message> {
     ));
     match app.timeline() {
         Some(timeline) => {
+            let scales: Vec<String> = timeline
+                .scales()
+                .map(|scale| format!("{scale:.6}"))
+                .collect();
+            let (used, speeds) = if scales.len() > 1 {
+                (
+                    format!("Scales in use: {} (one for each video).", scales.join(", ")),
+                    "Each OSD recording and its video run",
+                )
+            } else {
+                (
+                    format!("Scale in use: {}.", scales[0]),
+                    "The OSD recording and the video run",
+                )
+            };
             items = items.push(hint(format!(
-                "Scale in use: {:.6}. The OSD recording and the video run at slightly different speeds; the automatic scale corrects it from their durations.",
-                timeline.scale()
+                "{used} {speeds} at slightly different speeds; the automatic scale corrects it from their durations."
             )));
         }
         None => items = items.push(hint("There is no .osd file, so there is nothing to time.")),

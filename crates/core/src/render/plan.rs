@@ -7,9 +7,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::discover::{OUTPUT_SUFFIX, PREVIEW_SUFFIX};
-use crate::ffmpeg::VideoInfo;
 use crate::font::FontSheet;
-use crate::osd::{OsdFile, OsdOptions};
+use crate::footage::Footage;
+use crate::osd::{JoinPart, OsdFile, OsdOptions};
 use crate::srt::{SrtFile, SrtOptions};
 use crate::synth::SoundSettings;
 use crate::telemetry::{Profile, TelemetrySupport};
@@ -110,14 +110,14 @@ impl OutputPlan {
 /// Everything a render needs.
 #[derive(Clone)]
 pub struct RenderPlan {
-    /// The source video.
-    pub video: PathBuf,
-    /// What is known about it.
-    pub info: VideoInfo,
-    /// The OSD recording. Needed to draw the OSD and to make the sound.
+    /// The source video: one file, or several that follow one another.
+    pub footage: Footage,
+    /// The OSD recording. Needed to draw the OSD and to make the sound. With several videos it is the recordings of
+    /// all of them, one after the other (see [`crate::osd::join`]).
     pub osd: Option<OsdFile>,
-    /// The path of the `.osd` file, for messages.
-    pub osd_path: Option<PathBuf>,
+    /// Where each `.osd` file sits in the recording, and what it is called, for messages. There is one for each video,
+    /// or any number for a single video that was recorded in several files. Empty without a recording.
+    pub osd_parts: Vec<JoinPart>,
     /// Draw the OSD.
     pub osd_layer: Option<OsdLayer>,
     /// Draw the SRT data.
@@ -137,7 +137,7 @@ pub struct RenderPlan {
 impl std::fmt::Debug for RenderPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RenderPlan")
-            .field("video", &self.video)
+            .field("video", &self.footage.first().path)
             .field("output", &self.output.path)
             .finish_non_exhaustive()
     }
@@ -183,7 +183,7 @@ impl RenderPlan {
     /// The stretch of the video that is rendered.
     #[must_use]
     pub fn resolved_window(&self) -> ResolvedWindow {
-        let total = self.info.duration_s;
+        let total = self.footage.info().duration_s;
         let Some(window) = self.window else {
             return ResolvedWindow {
                 start_s: 0.0,
@@ -246,14 +246,34 @@ impl RenderPlan {
             }
             _ => {}
         }
-        if self.output.path == self.video {
+        if self
+            .footage
+            .parts()
+            .iter()
+            .any(|part| part.path == self.output.path)
+        {
             problems.push("the output file is the source video".into());
         }
-        if let Some(window) = self.window {
-            if window.start_s < 0.0 || window.start_s >= self.info.duration_s {
+        if self.osd.is_some() && self.footage.legs(&self.osd_parts).is_none() {
+            problems.push(format!(
+                "there must be one .osd file for each video, or several for a single video: {} .osd files were given for {} videos",
+                self.osd_parts.len(),
+                self.footage.parts().len()
+            ));
+        }
+        if matches!(self.output.video, VideoOutput::Copy) {
+            for difference in self.footage.differences() {
                 problems.push(format!(
-                    "the start of the stretch ({:.1} s) is outside the video ({:.1} s)",
-                    window.start_s, self.info.duration_s
+                    "the videos cannot be joined without encoding them again ({difference}). Draw the OSD or the SRT data, which encodes the video again"
+                ));
+            }
+        }
+        if let Some(window) = self.window {
+            let total = self.footage.info().duration_s;
+            if window.start_s < 0.0 || window.start_s >= total {
+                problems.push(format!(
+                    "the start of the stretch ({:.1} s) is outside the video ({total:.1} s)",
+                    window.start_s
                 ));
             }
             if window.duration_s.is_some_and(|d| d <= 0.0) {
@@ -271,6 +291,9 @@ impl RenderPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ffmpeg::VideoInfo;
+    use crate::footage::VideoPart;
+    use crate::osd::Firmware;
 
     fn info() -> VideoInfo {
         VideoInfo {
@@ -288,10 +311,9 @@ mod tests {
 
     fn plan() -> RenderPlan {
         RenderPlan {
-            video: PathBuf::from("in.mp4"),
-            info: info(),
+            footage: Footage::single(PathBuf::from("in.mp4"), info()),
             osd: None,
-            osd_path: None,
+            osd_parts: Vec::new(),
             osd_layer: None,
             srt_layer: None,
             chroma_key: None,
@@ -365,12 +387,87 @@ mod tests {
     fn the_output_cannot_overwrite_the_source() {
         let mut p = plan();
         p.sound = Some(SoundSettings::default());
-        p.output.path = p.video.clone();
+        p.output.path = p.footage.first().path.clone();
         assert!(
             p.validate()
                 .unwrap_err()
                 .iter()
                 .any(|m| m.contains("is the source video"))
+        );
+    }
+
+    fn two_videos(p: &mut RenderPlan, second_codec: &str) {
+        let mut other = info();
+        other.codec = second_codec.into();
+        p.footage = Footage::new(vec![
+            VideoPart {
+                path: PathBuf::from("a.mp4"),
+                info: info(),
+            },
+            VideoPart {
+                path: PathBuf::from("b.mp4"),
+                info: other,
+            },
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn videos_are_copied_one_after_the_other_only_if_they_are_alike() {
+        let mut p = plan();
+        p.sound = Some(SoundSettings::default());
+        p.osd = Some(OsdFile {
+            firmware: Firmware::Inav,
+            columns: 1,
+            rows: 1,
+            frames: Vec::new(),
+            trailing_bytes: 0,
+        });
+        p.osd_parts = (0..2)
+            .map(|i| JoinPart {
+                name: format!("{i}.osd"),
+                start_s: f64::from(i) * 100.0,
+                end_s: f64::from(i + 1) * 100.0,
+                frames: 1,
+            })
+            .collect();
+        two_videos(&mut p, "h264");
+        assert_eq!(p.validate(), Ok(()), "alike");
+
+        two_videos(&mut p, "hevc");
+        let problems = p.validate().unwrap_err();
+        assert!(
+            problems
+                .iter()
+                .any(|m| m.contains("without encoding them again") && m.contains("hevc")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn every_video_needs_its_recording() {
+        let mut p = plan();
+        p.sound = Some(SoundSettings::default());
+        p.osd = Some(OsdFile {
+            firmware: Firmware::Inav,
+            columns: 1,
+            rows: 1,
+            frames: Vec::new(),
+            trailing_bytes: 0,
+        });
+        p.osd_parts = vec![JoinPart {
+            name: "a.osd".into(),
+            start_s: 0.0,
+            end_s: 100.0,
+            frames: 1,
+        }];
+        two_videos(&mut p, "h264");
+        let problems = p.validate().unwrap_err();
+        assert!(
+            problems
+                .iter()
+                .any(|m| m.contains("1 .osd files were given for 2 videos")),
+            "{problems:?}"
         );
     }
 }

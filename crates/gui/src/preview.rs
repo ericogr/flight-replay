@@ -4,13 +4,13 @@
 //! The preview picture: one frame of the video with the OSD and the SRT data drawn on it, as the render will draw
 //! them.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use ab_glyph::FontRef;
 use flight_replay_core::assets::SRT_FONT;
-use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools, VideoInfo};
+use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools};
 use flight_replay_core::font::ScaledFont;
+use flight_replay_core::footage::Footage;
 use flight_replay_core::osd::{OsdFile, OsdOptions};
 use flight_replay_core::overlay::{draw_osd, draw_srt};
 use flight_replay_core::srt::{SrtFile, SrtOptions};
@@ -36,12 +36,12 @@ pub struct SrtPreview {
     pub options: SrtOptions,
 }
 
-/// What a picture is made from: the video, and the layers that are drawn on it.
+/// What a picture is made from: the video, and the layers that are drawn on it. The layers are on the timeline of the
+/// whole video, which may be made of several files.
 #[derive(Debug, Clone)]
 pub struct Scene {
     pub tools: Arc<Tools>,
-    pub video: PathBuf,
-    pub info: VideoInfo,
+    pub footage: Arc<Footage>,
     pub osd: Option<OsdPreview>,
     pub srt: Option<SrtPreview>,
     pub timeline: Option<Timeline>,
@@ -132,13 +132,13 @@ impl Layers {
             osd,
             srt: scene.srt.clone(),
             srt_font: FontRef::try_from_slice(SRT_FONT).map_err(|e| e.to_string())?,
-            timeline: scene.timeline,
+            timeline: scene.timeline.clone(),
         })
     }
 
     /// Draws the OSD and the SRT data of video time `time_s` on the frame.
     pub fn draw(&self, canvas: &mut RgbaImage, time_s: f64) {
-        if let (Some(osd), Some(timeline)) = (&self.osd, self.timeline) {
+        if let (Some(osd), Some(timeline)) = (&self.osd, &self.timeline) {
             draw_osd(
                 canvas,
                 timeline.osd_frame(&osd.file, time_s),
@@ -167,14 +167,16 @@ fn shrink_offsets(options: &OsdOptions, factor: f64) -> OsdOptions {
 
 fn decode_frame(request: &PreviewRequest) -> Result<RgbaImage, String> {
     let scene = &request.scene;
-    let info = &scene.info;
+    let info = scene.footage.info();
+    // The frame is in one of the videos, and is read at the time it has in that one.
+    let (part, start_s) = scene.footage.locate(request.time_s);
     let mut reader = FrameReader::open(
         &scene.tools,
-        &scene.video,
+        scene.footage.path(part),
         &DecodeOptions {
             width: info.width,
             height: info.height,
-            start_s: request.time_s,
+            start_s,
             duration_s: Some(2.0 / info.nominal_frame_rate),
             constant_rate: None,
             scale_to: None,

@@ -134,7 +134,12 @@ fn file(app: &FlightReplay) -> Element<'_, Message> {
             .on_toggle(|v| Message::Output(OutputEdit::Overwrite(v))),
     ]
     .spacing(8);
-    if app.sound_on() && app.video.as_ref().is_some_and(|v| v.info.audio_streams > 0) {
+    if app.sound_on()
+        && app
+            .footage
+            .as_ref()
+            .is_some_and(|footage| footage.info().audio_streams > 0)
+    {
         items = items.push(problem("The video already has sound."));
         items = items.push(
             checkbox(app.preferences.replace_audio)

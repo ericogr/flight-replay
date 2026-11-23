@@ -60,7 +60,8 @@ options the user chooses at the end.
 ### 2.3 Non-goals for v1
 
 - Video playback inside the GUI. The GUI shows single-frame previews only.
-- Editing, trimming or concatenating videos. (Joined videos from several `.osd` files are in P8.)
+- Editing or trimming videos. Joining is only what a flight needs: a video made of several `.osd` files, and a flight
+  recorded in several video files, each with its own `.osd` and `.srt` (D14, P8).
 - A command-line interface. The core is a library with no GUI dependency, so a CLI can be added later as a new
   crate without changing the core (section 5).
 - CSV, KML and other exports that fpv-osd-decoder offers. The rules are ported, so an export can be added later.
@@ -84,6 +85,7 @@ options the user chooses at the end.
 | D11 | Update check at startup (walksnail-osd-tool has one) | Not in v1. It needs network access. The program does nothing on its own over the network: the only use of the network is the install of FFmpeg that the user asks for (D13) | default |
 | D12 | Audio preview in the GUI | Yes, with `rodio`. Needs ALSA headers on Linux at build time. | default |
 | D13 | Installing FFmpeg from the program | **Yes, only when the user clicks a button on the settings screen.** The program downloads one fixed build for the system (Windows x86-64, macOS Apple Silicon, Linux x86-64), checks its SHA-256, unpacks `ffmpeg` and `ffprobe`, runs them once, and keeps them in its data folder. It never fetches anything by itself. The download is done by running `curl`, so the program has no network or TLS code and the proxy and the certificates of the system are used. The build is not redistributed by this project: the user gets it from the provider, who offers the source. It is the last place searched, so an FFmpeg of the user always wins. Chosen in P10. The builds and how they were checked are in `crates/core/src/ffmpeg/install/builds.rs` | decided in P10 |
+| D14 | A flight in several video files | **One run, one pass, no temporary video.** The videos of a flight (the goggles split a long recording into files, each with its own `.osd` and `.srt`) are put on one timeline (`Footage`), each starting on the frame where the one before it ends. With the OSD or the SRT data drawn, the render decodes each video in turn and writes every frame to the same encoder; with only the sound, the videos are copied one after the other with the `concat` demuxer of FFmpeg. Two other ways were left out: joining the videos with FFmpeg first (a temporary file as large as the flight, and the OSD placed by the length of its own recording, so the error adds up at every join) and rendering each video and joining the outputs (the sound starts over at each join, which can be heard). The sound is one engine over the recordings joined, so it is continuous. Each video is timed against its own recording (one scale for each). What is drawn or made needs the file of every video; a flight that lacks one for something the user asked for leaves that thing out, with the videos named, and says so on the Input step. The videos need the same picture size; to be copied they also need the same codec and rate. The folder queue does not group files by itself: `discover` tries only the plain names on purpose, and two names in a row do not mean one flight | decided in P8 (revision 21) |
 
 ## 4. Licensing and reuse
 
@@ -182,6 +184,7 @@ Where each module comes from. What each one does is in `docs/architecture.md`.
 |--------|--------|
 | `ffmpeg` | adapted from walksnail `ffmpeg/` (dependencies, encoders, video_info, message); probe and the stream-copy mux from fpv-motorsound `internal/media` |
 | `osd` | merges walksnail `osd/` and fpv-motorsound `internal/osd`; `join` is new |
+| `footage` | new: the videos of a flight on one timeline (D14) |
 | `font` | adapted from walksnail `font/` |
 | `srt` | adapted from walksnail `srt/` |
 | `overlay` | adapted from walksnail `overlay/`, without the egui types |
@@ -249,6 +252,11 @@ audio step from fpv-motorsound is added to it.
   correction off (walksnail-osd-tool's "adjust playback speed") is `ScaleMode::Off`.
 - Acceptance: on the sample flights, the flight timer on the video and the telemetry agree at several points.
   This covers both features at once and catches any disagreement between them.
+- A flight of several videos is a list of **legs**: each video with the recording that goes with it. The scale of a leg
+  is worked out from its own two durations, because the clock of each recording drifts on its own, and the delay of
+  the OSD applies inside each leg. A leg is held inside its recording (a time before it starts shows its first screen,
+  and one after it ends shows its last), so it never shows the screens of its neighbour. With one video there is one
+  leg, and the mapping is the formula above, unchanged.
 
 ### 5.5 Libraries
 
@@ -633,6 +641,12 @@ phase that is not started yet are not blocked by anything else unless the text s
 - [x] Queue of several videos in the GUI
 - [x] One video with several `.osd` files (joined)
 - [x] Coverage check for joined videos
+- [x] A flight of several video files rendered as one video, with the real FFmpeg on the fixture clip played twice (`crates/core/tests/footage.rs`): drawn on and joined with the sound of both (360 frames, no frame lost or repeated, the picture after the join starts like the start and not like the end, the sound as long as the picture), joined with the sound alone without encoding again, a stretch that crosses the join, a copied stretch that starts in the second video, and the commands shown
+- [x] Time arithmetic of the join (`footage.rs`, `timeline.rs`): where each video starts, which video holds a time, the stretches of a window, a scale for each video and a leg that never shows the screens of its neighbour (unit tests)
+- [x] The GUI takes several videos (`crates/gui/src/tests.rs`): dropped together or chosen, added, moved, removed, refused when the picture size differs, the files of each found by name, the OSD, the SRT data and the sound of the whole flight, the preview and the play going through the join, one render and the queue
+- [x] A video without its `.osd` or `.srt` is flagged by name on the Input step, on the OSD, SRT and sound steps and in the summary of the render (GUI tests)
+- [ ] A flight recorded in several files by real goggles: only the fixture clip, played twice, was used, so the length of the gap between real files, a real difference of rate between them and the real `.osd` and `.srt` of a split recording were not tried
+- [ ] Several files dragged together onto the real window (the program waits 50 ms for the ones that come with the first, which the tests exercise by message), and the dialog that chooses several videos at once, not tried on a desktop on any system
 
 **P9: release**
 
@@ -953,3 +967,19 @@ These do not block P0. The defaults are used unless the owner changes them.
   of the width, so its line wraps in the narrowest window (900 px) where it would have run past the edge beside the
   icon. Checked: `make check`, and the picture of the step in the light scheme. In the dark scheme only the icon on the
   dark background was looked at, not the step. No test was added: there is no logic in it.
+- Revision 21, 2026-11-23: a flight in several video files (D14). The goggles split a long recording into files, each
+  with its own `.osd` and `.srt`; until now each file had to be processed and joined by hand. New core module `footage`
+  (`Footage`, `VideoPart`, `Slice`): the videos on one timeline, each starting on the frame where the one before it
+  ends. `Timeline` is made of legs, one scale and one stretch of the recording for each video, and `RenderPlan` has a
+  `Footage` and the places of the `.osd` files in place of `video`, `info` and `osd_path`. The render runs a decoder for
+  each video in turn into one encoder, and the sound is one engine over the recordings joined; with only the sound the
+  videos are copied with the `concat` demuxer, from a list next to the output that is removed afterwards. A video that
+  ends one frame short is padded with its last picture so what follows keeps its place. `SrtFile::join` moves the
+  subtitles of each file to the time its video starts. In the window the list of `Clip`s is the choice, and the joined
+  `.osd`, the joined `.srt` and the `Footage` are worked out from it; a read of the files carries a number so an answer
+  that was overtaken is ignored (this also fixes a late answer of an `.osd` read that could be taken for the current one
+  after the files changed). The videos dropped together are one flight (a video waits 50 ms for the others); one dropped
+  by itself replaces the flight as before. `Availability::naming` names the videos that lack a file, and the Input step,
+  the OSD, SRT and sound steps and the summary of the render say what is left out. Checked: `make check` (see the
+  checklist of P8 for what the tests cover) and the pictures of the Input step with two videos and with one `.srt`
+  missing. Not checked: see the two open boxes of P8.

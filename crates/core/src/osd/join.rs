@@ -23,6 +23,24 @@ pub struct JoinPart {
     pub frames: usize,
 }
 
+impl JoinPart {
+    /// Where a file sits when it is the only one: on its own timeline, as it was recorded.
+    #[must_use]
+    pub fn alone(name: String, file: &OsdFile) -> Self {
+        Self::shifted(name, file, 0.0)
+    }
+
+    /// Where a file sits when its times are moved by `shift_s` seconds.
+    fn shifted(name: String, file: &OsdFile, shift_s: f64) -> Self {
+        Self {
+            name,
+            start_s: f64::from(file.frames[0].time_ms) / 1000.0 + shift_s,
+            end_s: file.duration_s() + shift_s,
+            frames: file.frames.len(),
+        }
+    }
+}
+
 /// Why `.osd` files cannot be joined.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum JoinError {
@@ -119,12 +137,7 @@ pub fn join(files: Vec<(String, OsdFile)>, gap_s: f64) -> Result<Joined, JoinErr
     let mut parts = Vec::with_capacity(files.len());
     for ((name, file), shift) in files.into_iter().zip(offsets) {
         let shift_ms = (shift * 1000.0).round() as i64;
-        parts.push(JoinPart {
-            name,
-            start_s: f64::from(file.frames[0].time_ms) / 1000.0 + shift,
-            end_s: file.duration_s() + shift,
-            frames: file.frames.len(),
-        });
+        parts.push(JoinPart::shifted(name, &file, shift));
         frames.extend(file.frames.into_iter().map(|mut frame| {
             frame.time_ms =
                 (i64::from(frame.time_ms) + shift_ms).clamp(0, i64::from(u32::MAX)) as u32;
@@ -256,6 +269,14 @@ mod tests {
         assert_eq!(joined.parts[1].name, "b.osd");
         assert!((joined.parts[1].start_s - 0.3).abs() < 1e-9);
         assert!((joined.parts[1].end_s - 0.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_file_alone_sits_where_the_join_of_one_file_puts_it() {
+        let file = file(Firmware::Inav, 2, &[300, 400, 500]);
+        let alone = JoinPart::alone("a.osd".into(), &file);
+        let joined = join(vec![("a.osd".into(), file)], 0.0).unwrap();
+        assert_eq!(joined.parts, vec![alone]);
     }
 
     #[test]

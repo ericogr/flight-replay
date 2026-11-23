@@ -14,7 +14,8 @@ use crate::config::Settings;
 use crate::discover::{self, Flight};
 use crate::ffmpeg::{EncoderInfo, FfmpegError, Tools, probe};
 use crate::font::OsdFont;
-use crate::osd::{OsdError, OsdFile};
+use crate::footage::Footage;
+use crate::osd::{JoinPart, OsdError, OsdFile};
 use crate::paths::file_name;
 use crate::srt::{SrtError, SrtFile};
 use crate::synth::{SignalSet, SoundSettings};
@@ -164,11 +165,14 @@ pub fn plan_flight(
     if !settings.draw_osd && !settings.draw_srt && !settings.make_sound {
         return Err(FlightError::NothingToAdd(left_out));
     }
+    let osd_parts: Vec<JoinPart> = match (&osd, &flight.companions.osd) {
+        (Some(file), Some(path)) => vec![JoinPart::alone(file_name(path), file)],
+        _ => Vec::new(),
+    };
     let plan = build_plan(&PlanInputs {
-        video: flight.video.clone(),
-        info,
+        footage: Footage::single(flight.video.clone(), info),
         osd: osd.as_ref(),
-        osd_path: flight.companions.osd.clone(),
+        osd_parts: &osd_parts,
         srt: srt.as_ref(),
         font: defaults.font.as_ref(),
         settings: &settings,

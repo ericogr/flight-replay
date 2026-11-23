@@ -116,8 +116,19 @@ fn queue(app: &FlightReplay) -> Element<'_, Message> {
 
 fn summary(app: &FlightReplay) -> Element<'_, Message> {
     let mut lines = column![].spacing(4);
-    if let Some(video) = &app.video {
-        lines = lines.push(text(format!("Video: {}", file_name(&video.path))));
+    if let Some(footage) = &app.footage {
+        lines = lines.push(text(match footage.parts() {
+            [video] => format!("Video: {}", file_name(&video.path)),
+            videos => format!(
+                "Videos: {} ({}), joined into one",
+                videos
+                    .iter()
+                    .map(|video| file_name(&video.path))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                clock_tenths(footage.info().duration_s)
+            ),
+        }));
     }
     let (osd, srt, sound) = (app.draw_osd_on(), app.draw_srt_on(), app.sound_on());
     let mut added = Vec::new();

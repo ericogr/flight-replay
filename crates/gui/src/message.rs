@@ -9,6 +9,7 @@ use std::sync::Arc;
 use flight_replay_core::ffmpeg::install::Progress;
 use flight_replay_core::ffmpeg::{EncoderInfo, Tools};
 use flight_replay_core::font::BundledFont;
+use flight_replay_core::footage::VideoPart;
 use flight_replay_core::render::{Event, Outcome};
 use flight_replay_core::synth::AircraftKind;
 use flight_replay_core::telemetry::Recording;
@@ -16,9 +17,7 @@ use iced::Point;
 
 use crate::preferences::ThemeChoice;
 use crate::sound_params::Param;
-use crate::state::{
-    FileKind, FolderQueue, LoadedFont, LoadedOsd, LoadedSrt, LoadedVideo, ScaleChoice,
-};
+use crate::state::{FileKind, FolderQueue, LoadedFont, LoadedOsd, LoadedSrt, Placing, ScaleChoice};
 use crate::wizard::Step;
 
 /// An edit of the OSD placement.
@@ -136,14 +135,34 @@ pub enum Message {
     OpenSettingsFolder,
     OpenProjectPage,
     // files
+    /// Choose a file of this kind. For the videos, the ones chosen are the flight. For the `.osd` and the `.srt`, it is
+    /// the file of the first video: another video has its own messages.
     Browse(FileKind),
     FileChosen(FileKind, Option<PathBuf>),
     FileDropped(PathBuf),
+    /// The videos dropped together have all arrived: they are opened as one flight.
+    DropsSettled,
     Clear(FileKind),
     /// A font that comes with the program was chosen from the list.
     UseBundledFont(&'static BundledFont),
-    VideoLoaded(Result<Arc<LoadedVideo>, String>),
-    OsdLoaded(Result<Arc<LoadedOsd>, String>),
+    /// Choose the videos that follow the ones that are open.
+    AddVideos,
+    /// The videos that the user chose, or none when the dialog was closed. They are the flight.
+    VideosChosen(Vec<PathBuf>),
+    /// The videos that the user chose to follow the ones that are open, or none.
+    VideosAdded(Vec<PathBuf>),
+    /// Take the video at this place out of the flight.
+    RemoveVideo(usize),
+    /// Play the video at this place before the one in front of it.
+    MoveVideoUp(usize),
+    VideosLoaded(Placing, Result<Vec<VideoPart>, String>),
+    /// Choose the `.osd` or the `.srt` of the video at this place.
+    BrowseClipFile(FileKind, usize),
+    ClipFileChosen(FileKind, usize, Option<PathBuf>),
+    /// Take the `.osd` or the `.srt` of the video at this place out.
+    ClearClipFile(FileKind, usize),
+    /// The `.osd` files that the load with this number read.
+    OsdLoaded(u64, Result<Arc<LoadedOsd>, String>),
     /// Choose another `.osd` file for a video made of several recordings.
     AddOsd,
     OsdAdded(Option<PathBuf>),
@@ -151,9 +170,11 @@ pub enum Message {
     RemoveOsdFile(usize),
     /// Play the `.osd` file at this place before the one in front of it.
     MoveOsdFileUp(usize),
-    SrtLoaded(Result<Arc<LoadedSrt>, String>),
+    /// The `.srt` files that the load with this number read.
+    SrtLoaded(u64, Result<Arc<LoadedSrt>, String>),
     FontLoaded(Result<Arc<LoadedFont>, String>),
-    TelemetryReady(PathBuf, Result<Arc<Recording>, String>),
+    /// The telemetry of the `.osd` files that the load with this number read.
+    TelemetryReady(u64, Result<Arc<Recording>, String>),
     // layers
     DrawOsd(bool),
     DrawSrt(bool),

@@ -77,7 +77,7 @@ fn tone_pcm(seconds: f64) -> Vec<u8> {
 fn copy_job(output: PathBuf, audio: AudioInput) -> EncodeJob {
     EncodeJob {
         video: VideoInput::Copy {
-            path: fixture(),
+            paths: vec![fixture()],
             start_s: 0.0,
         },
         audio,
@@ -235,7 +235,7 @@ fn an_aborted_encode_leaves_no_file_behind() {
 fn a_copied_video_cannot_be_encoded_again() {
     let job = EncodeJob {
         video: VideoInput::Copy {
-            path: fixture(),
+            paths: vec![fixture()],
             start_s: 0.0,
         },
         audio: AudioInput::None,

@@ -98,7 +98,11 @@ fn a_video_that_cannot_be_planned_is_left_out_with_its_reason() {
 
     let plans = plan_folder(&tools, dir.path(), &defaults, &[]).unwrap();
 
-    let planned: Vec<_> = plans.plans.iter().map(|p| p.video.clone()).collect();
+    let planned: Vec<_> = plans
+        .plans
+        .iter()
+        .map(|p| p.footage.first().path.clone())
+        .collect();
     assert_eq!(names(&planned), ["a.mp4"]);
     assert_eq!(
         plans.skipped.len(),

@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use flight_replay_core::cancel::CancelToken;
 use flight_replay_core::ffmpeg::Tools;
+use flight_replay_core::footage::Footage;
 use flight_replay_core::paths::folder_or_current;
 use flight_replay_core::render::{
     Event, PlanInputs, RenderPlan, Stage, Window, build_plan, command_preview,
@@ -22,16 +23,15 @@ use crate::tasks;
 impl FlightReplay {
     /// Builds the plan from what the user chose.
     pub fn build_plan(&self) -> Result<RenderPlan, Vec<String>> {
-        let Some(video) = &self.video else {
+        let Some(footage) = &self.footage else {
             return Err(vec!["Open a video.".into()]);
         };
         // Only what the files allow: the rest is left out of the render, and the steps say why.
         let settings = self.availability().restrict(&self.settings);
         build_plan(&PlanInputs {
-            video: video.path.clone(),
-            info: video.info.clone(),
+            footage: Footage::clone(footage),
             osd: self.osd.as_ref().map(|o| &*o.file),
-            osd_path: self.osd.as_ref().map(|o| o.path().to_path_buf()),
+            osd_parts: self.osd.as_ref().map_or(&[], |o| o.parts.as_slice()),
             srt: self.srt.as_ref().map(|s| &*s.file),
             font: self.font.as_ref().map(|f| &f.font),
             settings: &settings,

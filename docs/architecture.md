@@ -17,12 +17,13 @@ draw), it goes in the core, where a command line can use it too.
 | Module | What it does |
 |---|---|
 | `ffmpeg` | Finds `ffmpeg` and `ffprobe`, reads what `ffprobe` says about a video, lists the encoders and tries each with a one-frame encode, decodes raw RGBA frames over a pipe (as stored, or already shrunk, which is how the previews that play are decoded), and runs the encoder process. FFmpeg is only ever a separate program. It skips a copy older than version 6. `ffmpeg::install` installs a copy on request (fixed builds, `curl`, SHA-256, unpacking, a test run, and a swap of the folder), see `docs/build.md`. |
+| `footage` | The video of a flight: one file, or several that follow one another (`Footage`, `VideoPart`). It puts the videos on one timeline, each starting on the frame where the one before it ends, says which video holds a time (`locate`) and which stretch of which video a stretch of the whole is (`slices`), and pairs each video with its recording to give the `Timeline` its legs. |
 | `osd` | The `.osd` file (header, screens, firmware), the options for drawing it (position, masks), and `join`: several files of one video put on one timeline, with the coverage check. |
 | `font` | OSD font sheets: the layouts they come in, and the glyphs at the size of the video, or made smaller for a picture that is smaller than the video (the previews), with the cells kept exactly in proportion. An `OsdFont` is one sheet (a file) or several (a font that comes with the program, compiled in from `assets/osd-fonts/`), and the sheet nearest to the video is the one drawn. |
 | `srt` | The SRT file the goggles record, and the data in each line. |
 | `overlay` | Draws the OSD and the SRT data on a frame, and the chroma-key background. |
 | `telemetry` | Reads the numbers out of the OSD screens. `decoder` and `inav` hold the rules and the glyph table; `table` and `series` put the readings on a timeline; `recording` ties them together; `probe` shows what the OSD says at a time; `profile` says what a firmware can give the sound. |
-| `timeline` | The one mapping between video time and telemetry time (offset and speed), used by the overlay and by the sound so they agree. |
+| `timeline` | The one mapping between video time and telemetry time (offset and speed), used by the overlay and by the sound so they agree. For a flight of several videos it is made of legs, one for each video and its recording, each with the speed of its own recording. |
 | `synth` | The sound: settings (with the kind of aircraft), the presets of each kind, signals taken from the telemetry, and the engine (oscillators, filters, noise, limiter). `rotors` gives each motor of a drone a tone of its own, at its own speed. It is deterministic: the same input gives the same bytes, whatever the block size. |
 | `audio` | PCM and WAV writing. |
 | `render` | `RenderPlan` (everything a render needs), `build_plan` (makes one from the files and the settings), `Availability` (what the files at hand allow, and why not), `plan_folder` (makes one for each video of a folder), `render` (does it, with progress and cancelling), and the check of the output. |
@@ -47,12 +48,15 @@ given. A flight is refused only when nothing is left to add.
 
 1. `build_plan` turns the files and the settings into a `RenderPlan`, or lists everything that is wrong.
 2. `render` checks the plan, then `Timeline` maps video time to telemetry time, and a warning is given if the
-   telemetry does not span the video.
-3. With sound, `telemetry::Recording` decodes the `.osd`, `synth::SignalSet` takes the signals the sound follows, and
-   the engine makes the sound a block at a time.
+   telemetry does not span the video (for each video, when there are several).
+3. With sound, `telemetry::Recording` decodes the `.osd` (the recordings of all the videos, joined), `synth::SignalSet`
+   takes the signals the sound follows, and the engine makes the sound a block at a time. It is one engine for the
+   whole flight, so there is no break in the sound where one video ends and the next begins.
 4. With the OSD or the SRT data, the video is decoded to raw frames, each is drawn on, and the frames go to the
-   encoder; the sound is made first into a temporary WAV file. With only sound, the video stream is copied and the
-   sound goes to FFmpeg as it is made.
+   encoder; the sound is made first into a temporary WAV file. With several videos, one decoder runs for each in
+   turn (`Footage::slices`) and every frame goes to the same encoder. With only sound, the video stream is copied and
+   the sound goes to FFmpeg as it is made; several videos are copied one after the other with the `concat` demuxer
+   of FFmpeg, from a list written next to the output and removed afterwards.
 5. The output is written under a `.partial` name and renamed when it is complete, so a cancelled render leaves
    nothing behind. Then it is opened to compare the length of the picture and of the sound.
 
@@ -86,7 +90,9 @@ crates/gui/src
 ├── sound_params.rs the table of sound parameters the sound step draws its sliders from (with a range for a drone where it differs)
 ├── app/            the state of the application and how it reacts
 │   ├── mod.rs        the struct, and `update`: one flat table from message to handler
-│   ├── files.rs      the video and the files that go with it
+│   ├── files.rs      the videos of the flight and the files that go with each (the list of `Clip`s is what the user
+│   │                 chose; the `.osd` and `.srt` of all of them are read again whenever it changes, and put on one
+│   │                 timeline)
 │   ├── options.rs    what to draw, the timing, the sound and the output
 │   ├── persist.rs    writing the settings file whenever a choice changes
 │   ├── settings.rs   the settings screen: opening it, installing FFmpeg from it, and what the screens show about the
@@ -112,6 +118,15 @@ Things worth knowing:
   FFmpeg again never opens it over what the user has done.
 - `update` is one `match` with an arm for every message and no wildcard, so adding a message that nothing handles
   does not compile.
+- A flight is one video or several (`FlightReplay::clips`, each with its `.osd` files and its `.srt`). What the rest of
+  the program sees is derived from it and is always one video: `footage` (the videos on one timeline), `osd` (the
+  recordings joined), `srt` (the subtitles moved to the time each video starts) and `timeline()` (one leg for each
+  video). So the preview, the sound and the render do not know how many files there are, except where a frame is
+  decoded (`Footage::locate` and `slices`). A read of the `.osd` or `.srt` files carries a number, and an answer that
+  is not for the last read is ignored, because every change of the list reads them all again. The videos dropped on the
+  window together are one flight: a video waits a moment (`DROP_SETTLE_MS`) for the ones that come with it. What a flight
+  lacks (a video without its `.osd` or `.srt`) is named in the reasons of `Availability::naming`, which every step and
+  the summary show.
 - A handler does not do slow work. It starts a task (`tasks.rs`) and returns; the task answers with a message
   (`VideoLoaded`, `PreviewReady`, `Render(..)`), and another handler takes the result.
 - What the user types is kept as text (`SyncInput`, `StretchInput`) and read when it is needed, so there is one copy

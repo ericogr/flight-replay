@@ -12,7 +12,8 @@ use std::process::Command;
 use flight_replay_core::cancel::CancelToken;
 use flight_replay_core::ffmpeg::{DecodeOptions, FrameReader, Tools, VideoInfo, probe};
 use flight_replay_core::font::CharacterSize;
-use flight_replay_core::osd::{OsdFile, OsdOptions};
+use flight_replay_core::footage::Footage;
+use flight_replay_core::osd::{JoinPart, OsdFile, OsdOptions};
 use flight_replay_core::render::{
     EncoderChoice, Event, Mode, OsdLayer, OutputPlan, Overwrite, RenderError, RenderPlan, SrtLayer,
     Stage, VideoOutput, Window, render,
@@ -45,11 +46,11 @@ fn encoder() -> EncoderChoice {
 fn plan(tools: &Tools, output: PathBuf) -> RenderPlan {
     let video = common::fixture("clip-3s.mp4");
     let info: VideoInfo = probe(tools, &video).unwrap();
+    let osd = OsdFile::open(&common::fixture("clip-3s.osd")).unwrap();
     RenderPlan {
-        video,
-        info,
-        osd: Some(OsdFile::open(&common::fixture("clip-3s.osd")).unwrap()),
-        osd_path: Some(common::fixture("clip-3s.osd")),
+        footage: Footage::single(video, info),
+        osd_parts: vec![JoinPart::alone("clip-3s.osd".into(), &osd)],
+        osd: Some(osd),
         osd_layer: None,
         srt_layer: None,
         chroma_key: None,
@@ -125,7 +126,7 @@ fn the_sound_alone_copies_the_video_and_adds_audio() {
 
     assert_eq!(outcome.mode, Mode::SoundOnly);
     assert_eq!(
-        video_md5(&tools, &plan.video),
+        video_md5(&tools, &plan.footage.first().path),
         video_md5(&tools, &outcome.output),
         "the video stream is untouched"
     );
@@ -161,7 +162,7 @@ fn the_osd_is_drawn_and_the_video_is_encoded_again() {
 
     // The OSD changed the picture: many pixels of the first frame differ from the source's.
     let drawn = first_frame(&tools, &outcome.output);
-    let source = first_frame(&tools, &plan.video);
+    let source = first_frame(&tools, &plan.footage.first().path);
     let changed = drawn
         .pixels()
         .zip(source.pixels())
@@ -315,7 +316,10 @@ fn the_sound_of_a_video_that_has_some_is_only_replaced_when_allowed() {
     let dir = tempfile::tempdir().unwrap();
     let mut plan = plan(&tools, dir.path().join("replace.mp4"));
     plan.sound = Some(SoundSettings::default());
-    plan.info.audio_streams = 1; // as if the source had sound
+    // as if the source had sound
+    let mut info = plan.footage.first().info.clone();
+    info.audio_streams = 1;
+    plan.footage = Footage::single(plan.footage.first().path.clone(), info);
     assert!(matches!(
         run(&tools, &plan),
         Err(RenderError::SourceHasAudio)

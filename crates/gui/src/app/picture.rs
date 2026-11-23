@@ -55,11 +55,9 @@ impl FlightReplay {
 
     /// What a picture is made from now: the video and the layers of this step. `None` without a video or FFmpeg.
     pub(super) fn scene(&self) -> Option<Scene> {
-        let video = self.video.as_ref()?;
         Some(Scene {
             tools: self.tools()?,
-            video: video.path.clone(),
-            info: video.info.clone(),
+            footage: Arc::clone(self.footage.as_ref()?),
             osd: self.osd_layer(),
             srt: self.srt_layer(),
             timeline: self.timeline(),
@@ -90,7 +88,7 @@ impl FlightReplay {
     }
 
     pub(super) fn refresh_preview_if_open(&mut self) -> Task<Message> {
-        if self.video.is_some() {
+        if self.footage.is_some() {
             self.refresh_preview()
         } else {
             Task::none()
@@ -149,16 +147,17 @@ impl FlightReplay {
 
     /// The cell of the OSD under the pointer, if any.
     fn cell_under_pointer(&self) -> Option<(u32, u32)> {
-        let (video, osd, font) = (
-            self.video.as_ref()?,
+        let (footage, osd, font) = (
+            self.footage.as_ref()?,
             self.osd.as_ref()?,
             self.scaled_font.as_ref()?,
         );
         let hover = self.preview.hover?;
+        let info = footage.info();
         let (x, y) = video_point(
             (hover.x, hover.y),
             self.preview.shown,
-            (video.info.width, video.info.height),
+            (info.width, info.height),
         )?;
         Grid::new(&osd.file, font, &self.settings.osd).cell_at(x, y)
     }

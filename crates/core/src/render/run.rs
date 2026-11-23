@@ -19,10 +19,11 @@ use crate::assets::SRT_FONT;
 use crate::audio::{pcm16le, write_wav_header};
 use crate::cancel::CancelToken;
 use crate::ffmpeg::{
-    AudioInput, DecodeOptions, EncodeJob, EncodeProcess, FfmpegError, FrameReader, Tools,
-    VideoEncoding, VideoInput, probe,
+    AudioInput, EncodeJob, EncodeProcess, FfmpegError, FrameReader, Tools, VideoEncoding,
+    VideoInput, probe,
 };
 use crate::font::{CharacterSize, ScaledFont};
+use crate::footage::Slice;
 use crate::osd::OsdFile;
 use crate::overlay::{chroma_background, draw_osd, draw_srt};
 use crate::paths::{file_name, folder_or_current, free_space, has_room, parent_folder};
@@ -155,7 +156,7 @@ pub fn render(
     if plan.output.path.exists() && plan.output.overwrite == Overwrite::Refuse {
         return Err(RenderError::OutputExists(plan.output.path.clone()));
     }
-    if plan.sound.is_some() && plan.info.audio_streams > 0 && !plan.output.replace_audio {
+    if plan.sound.is_some() && plan.footage.info().audio_streams > 0 && !plan.output.replace_audio {
         return Err(RenderError::SourceHasAudio);
     }
     let mut reporter = Reporter {
@@ -171,8 +172,16 @@ pub fn render(
         .as_ref()
         .map(|osd| check_sync(plan, osd, &mut reporter));
     let sound = prepare_sound(plan, &mut reporter)?;
-    if mode == Mode::Overlay && plan.sound.is_none() && plan.info.audio_streams > 0 {
+    if mode == Mode::Overlay && plan.sound.is_none() && plan.footage.info().audio_streams > 0 {
         reporter.warn("the sound of the input video is not kept in the output");
+    }
+    if mode == Mode::Overlay {
+        // Another codec does not matter when the pictures are decoded, but another rate is put on the first one's.
+        for difference in plan.footage.rate_differences() {
+            reporter.warn(format!(
+                "the videos run at different rates ({difference}): all are put at the rate of the first"
+            ));
+        }
     }
     if let Some(parent) = parent_folder(&plan.output.path) {
         fs::create_dir_all(parent)?;
@@ -224,15 +233,32 @@ pub fn render(
     })
 }
 
-/// Maps video time to telemetry time, and warns if the telemetry does not span the video.
+/// Maps video time to telemetry time, and warns if the telemetry does not span the video. With several videos each is
+/// checked against its own recording, and a warning names the video.
 fn check_sync(plan: &RenderPlan, osd: &OsdFile, reporter: &mut Reporter<'_>) -> Timeline {
-    let timeline = Timeline::new(plan.sync, plan.info.duration_s, osd.duration_s());
-    let end_s = osd
-        .frames
-        .last()
-        .map_or(0.0, |f| f64::from(f.time_ms) / 1000.0);
-    for warning in timeline.check(plan.info.duration_s, end_s, SyncTolerance::default()) {
-        reporter.warn(warning.to_string());
+    let legs = plan
+        .footage
+        .legs(&plan.osd_parts)
+        .expect("validate checked that the recordings fit the videos");
+    let timeline = Timeline::joined(plan.sync, &legs);
+    let tolerance = SyncTolerance::default();
+    if legs.len() == 1 {
+        let end_s = osd
+            .frames
+            .last()
+            .map_or(0.0, |f| f64::from(f.time_ms) / 1000.0);
+        let video_s = plan.footage.info().duration_s;
+        for warning in timeline.check(video_s, end_s, tolerance) {
+            reporter.warn(warning.to_string());
+        }
+        return timeline;
+    }
+    for (part, leg) in plan.footage.parts().iter().zip(&legs) {
+        let video_s = part.info.duration_s;
+        let own = Timeline::new(plan.sync, video_s, leg.osd_duration_s);
+        for warning in own.check(video_s, leg.osd_duration_s, tolerance) {
+            reporter.warn(format!("{}: {warning}", file_name(&part.path)));
+        }
     }
     timeline
 }
@@ -265,9 +291,9 @@ fn prepare_sound<'a>(
     };
     let recording = Recording::decode(osd, LoadOptions::default())?;
     let name = plan
-        .osd_path
-        .as_deref()
-        .map_or_else(|| "the .osd".to_owned(), file_name);
+        .osd_parts
+        .first()
+        .map_or_else(|| "the .osd".to_owned(), |part| part.name.clone());
     let signals = SignalSet::collect(&recording.table, settings, &name, recording.frames)?;
     for warning in &signals.warnings {
         reporter.warn(warning.clone());
@@ -341,7 +367,12 @@ fn sound_only_job(
 ) -> EncodeJob {
     EncodeJob {
         video: VideoInput::Copy {
-            path: plan.video.clone(),
+            paths: plan
+                .footage
+                .parts()
+                .iter()
+                .map(|part| part.path.clone())
+                .collect(),
             start_s: window.start_s,
         },
         audio: AudioInput::PcmStdin {
@@ -363,9 +394,9 @@ fn overlay_job(plan: &RenderPlan, window: ResolvedWindow, audio: AudioInput) -> 
     };
     EncodeJob {
         video: VideoInput::Raw {
-            width: plan.info.width,
-            height: plan.info.height,
-            frame_rate: plan.info.nominal_frame_rate,
+            width: plan.footage.info().width,
+            height: plan.footage.info().height,
+            frame_rate: plan.footage.info().nominal_frame_rate,
         },
         audio,
         encoding: Some(VideoEncoding {
@@ -399,17 +430,22 @@ pub fn command_preview(plan: &RenderPlan, ffmpeg: &Path) -> Vec<String> {
             } else {
                 AudioInput::None
             };
-            let decode = DecodeOptions {
-                width: plan.info.width,
-                height: plan.info.height,
-                start_s: window.start_s,
-                duration_s: Some(window.duration_s),
-                constant_rate: Some(plan.info.nominal_frame_rate),
-                scale_to: None,
-            };
             let mut lines = Vec::new();
             if plan.chroma_key.is_none() {
-                lines.push(FrameReader::command_line(ffmpeg, &plan.video, &decode));
+                let footage = &plan.footage;
+                let rate = footage.info().nominal_frame_rate;
+                lines.extend(
+                    footage
+                        .slices(window.start_s, Some(window.duration_s))
+                        .iter()
+                        .map(|slice| {
+                            FrameReader::command_line(
+                                ffmpeg,
+                                footage.path(slice.part),
+                                &footage.decode_options(slice, rate),
+                            )
+                        }),
+                );
             }
             lines.push(overlay_job(plan, window, audio).command_line(ffmpeg));
             lines
@@ -441,7 +477,7 @@ impl<'a> Layers<'a> {
             font: plan.osd_layer.as_ref().map(|layer| {
                 layer
                     .font
-                    .scaled(CharacterSize::for_video_height(plan.info.height))
+                    .scaled(CharacterSize::for_video_height(plan.footage.info().height))
             }),
             srt_font: FontRef::try_from_slice(SRT_FONT).expect("the bundled font is valid"),
             timeline,
@@ -454,7 +490,7 @@ impl<'a> Layers<'a> {
             &self.plan.osd_layer,
             &self.font,
             &self.plan.osd,
-            self.timeline,
+            &self.timeline,
         ) {
             draw_osd(
                 canvas,
@@ -481,9 +517,9 @@ fn overlay(
     cancel: &CancelToken,
     reporter: &mut Reporter<'_>,
 ) -> Result<(PathBuf, Option<RenderStats>), RenderError> {
-    let info = &plan.info;
-    let rate = info.nominal_frame_rate;
-    let total = (window.duration_s * rate).round().max(1.0) as u64;
+    let rate = plan.footage.info().nominal_frame_rate;
+    let slices = plan.footage.slices(window.start_s, Some(window.duration_s));
+    let total = slices.iter().map(|slice| slice.frames(rate)).sum();
 
     // The sound first, into a file next to the output. The guard removes it on every way out.
     let mut audio_stats = None;
@@ -492,7 +528,7 @@ fn overlay(
             let path = temp_wav_path(&plan.output.path);
             check_free_space(folder_or_current(&path), sound.bytes(window))?;
             let guard = TempFile(path.clone());
-            let timeline = timeline.expect("the sound has an OSD file");
+            let timeline = timeline.clone().expect("the sound has an OSD file");
             audio_stats = Some(write_wav(&path, sound, timeline, window, cancel, reporter)?);
             (AudioInput::WavFile { path }, Some(guard))
         }
@@ -501,61 +537,97 @@ fn overlay(
 
     let job = overlay_job(plan, window, audio);
     let mut process = EncodeProcess::spawn(tools, &job)?;
-    // Frames at a constant rate: a gap in the video repeats the previous frame, so frame n is at time n / rate.
-    let mut reader = match plan.chroma_key {
-        Some(_) => None,
-        None => Some(FrameReader::open(
-            tools,
-            &plan.video,
-            &DecodeOptions {
-                width: info.width,
-                height: info.height,
-                start_s: window.start_s,
-                duration_s: Some(window.duration_s),
-                constant_rate: Some(rate),
-                scale_to: None,
-            },
-        )?),
+    let mut painter = Painter {
+        tools,
+        plan,
+        layers: Layers::new(plan, timeline),
+        done: 0,
+        total,
     };
-
-    let layers = Layers::new(plan, timeline);
     reporter.stage(Stage::Video);
-    let mut buffer: Vec<u8> = Vec::new();
-    let mut index = 0u64;
-    while index < total {
-        if cancel.is_cancelled() {
+    for slice in &slices {
+        if let Err(error) = painter.paint(slice, &mut process, cancel, reporter) {
             process.abort();
-            if let Some(reader) = reader {
-                reader.cancel();
-            }
-            return Err(RenderError::Cancelled);
+            return Err(error);
         }
-        let mut canvas = match (&mut reader, plan.chroma_key) {
-            (Some(reader), _) => {
-                if !reader.read_frame(&mut buffer)? {
-                    break; // the video ended a frame early
-                }
-                RgbaImage::from_raw(info.width, info.height, std::mem::take(&mut buffer))
-                    .expect("the reader gives whole frames")
-            }
-            (None, Some(color)) => chroma_background(info.width, info.height, color),
-            (None, None) => unreachable!("a plan without a chroma key reads the video"),
-        };
-        layers.draw(&mut canvas, window.start_s + index as f64 / rate);
-
-        process.write(canvas.as_raw())?;
-        buffer = canvas.into_raw();
-        index += 1;
-        if index.is_multiple_of(PROGRESS_EVERY) || index == total {
-            reporter.progress(Stage::Video, index, total);
-        }
-    }
-    if let Some(reader) = reader {
-        reader.cancel(); // the rest of the video is not needed
     }
     reporter.stage(Stage::Finishing);
     process.finish()?;
     Ok((plan.output.path.clone(), audio_stats))
+}
+
+/// Draws on the frames of the videos, a stretch at a time, and hands them to the encoder.
+struct Painter<'a> {
+    tools: &'a Tools,
+    plan: &'a RenderPlan,
+    layers: Layers<'a>,
+    /// How many frames have gone to the encoder, and how many will in all.
+    done: u64,
+    total: u64,
+}
+
+impl Painter<'_> {
+    /// Draws the frames of one stretch of one video and writes them to the encoder. Stops with
+    /// [`RenderError::Cancelled`] when asked: the caller then aborts the encoder.
+    fn paint(
+        &mut self,
+        slice: &Slice,
+        process: &mut EncodeProcess,
+        cancel: &CancelToken,
+        reporter: &mut Reporter<'_>,
+    ) -> Result<(), RenderError> {
+        let plan = self.plan;
+        let info = plan.footage.info();
+        let rate = info.nominal_frame_rate;
+        let expected = slice.frames(rate);
+        let mut reader = match plan.chroma_key {
+            Some(_) => None,
+            None => Some(FrameReader::open(
+                self.tools,
+                plan.footage.path(slice.part),
+                &plan.footage.decode_options(slice, rate),
+            )?),
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+        // The frame before the last one, kept clean, for a video that ends one frame early (see below).
+        let mut spare: Vec<u8> = Vec::new();
+        for index in 0..expected {
+            if cancel.is_cancelled() {
+                return Err(RenderError::Cancelled);
+            }
+            let mut canvas = match (&mut reader, plan.chroma_key) {
+                (Some(reader), _) => {
+                    if !reader.read_frame(&mut buffer)? {
+                        // The video ended a frame early. Its last picture is held for the missing frame, so that
+                        // what follows (the next video, the sound) keeps its place.
+                        if index + 1 != expected || spare.is_empty() {
+                            break;
+                        }
+                        buffer.clone_from(&spare);
+                    } else if index + 2 == expected {
+                        spare.clone_from(&buffer);
+                    }
+                    RgbaImage::from_raw(info.width, info.height, std::mem::take(&mut buffer))
+                        .expect("the reader gives whole frames")
+                }
+                (None, Some(color)) => chroma_background(info.width, info.height, color),
+                (None, None) => unreachable!("a plan without a chroma key reads the video"),
+            };
+            self.layers
+                .draw(&mut canvas, slice.at_s + index as f64 / rate);
+
+            process.write(canvas.as_raw())?;
+            buffer = canvas.into_raw();
+            self.done += 1;
+            if self.done.is_multiple_of(PROGRESS_EVERY) || self.done == self.total {
+                reporter.progress(Stage::Video, self.done, self.total);
+            }
+        }
+        if let Some(reader) = reader {
+            reader.cancel(); // the rest of the video is not needed
+        }
+        Ok(())
+    }
 }
 
 /// Stops before the sound is made if the folder of the temporary sound file cannot hold it. A folder whose free

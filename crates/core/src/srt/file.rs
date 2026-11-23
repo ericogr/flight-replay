@@ -85,6 +85,24 @@ impl SrtFile {
         Self { cues }
     }
 
+    /// The subtitles of several files, one after another: each file comes with the time, in seconds, at which its
+    /// video starts on the timeline of the whole video, and its cues are moved by it. The files are in the order they
+    /// play.
+    #[must_use]
+    pub fn join(files: &[(&SrtFile, f64)]) -> Self {
+        let cues = files
+            .iter()
+            .flat_map(|(file, offset_s)| {
+                file.cues.iter().map(move |cue| SrtCue {
+                    start_s: cue.start_s + offset_s,
+                    end_s: cue.end_s + offset_s,
+                    ..cue.clone()
+                })
+            })
+            .collect();
+        Self { cues }
+    }
+
     /// Length of the subtitles, in seconds: the end of the last cue.
     #[must_use]
     pub fn duration_s(&self) -> f64 {
@@ -158,6 +176,29 @@ mod tests {
         assert!((file.cue_at(0.2).unwrap().start_s - 0.15).abs() < 1e-9);
         assert!((file.cue_at(50.0).unwrap().start_s - 1.0).abs() < 1e-9);
         assert!(SrtFile::default().cue_at(1.0).is_none());
+    }
+
+    #[test]
+    fn the_subtitles_of_several_videos_follow_one_another() {
+        let first = SrtFile::parse(SAMPLE);
+        let second = SrtFile::parse("1\n00:00:00,000 --> 00:00:00,150\nSignal:2 Distance:9m\n");
+        let joined = SrtFile::join(&[(&first, 0.0), (&second, 20.0)]);
+        assert_eq!(joined.cues.len(), 4);
+        assert!((joined.cues[3].start_s - 20.0).abs() < 1e-9);
+        assert!((joined.cues[3].end_s - 20.15).abs() < 1e-9);
+        // At a time of the second video the cue is the one of its own file, and before it the last of the first.
+        assert_eq!(
+            joined
+                .cue_at(20.1)
+                .unwrap()
+                .data
+                .as_ref()
+                .unwrap()
+                .distance_m,
+            9
+        );
+        assert!((joined.cue_at(19.0).unwrap().start_s - 1.0).abs() < 1e-9);
+        assert_eq!(SrtFile::join(&[]), SrtFile::default());
     }
 
     #[test]

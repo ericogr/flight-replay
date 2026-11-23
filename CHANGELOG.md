@@ -7,6 +7,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **A flight in several files.** Choose or drop all the videos of a flight together (the goggles split a long
+  recording into files), each with its own `.osd` and `.srt`, and they are rendered as one video in one run. With the
+  OSD or the SRT data drawn, the videos are decoded and drawn one after the other and encoded as one; with only the
+  sound, they are copied one after the other, without being encoded again, when they have the same codec and rate.
+  The motor sound is one continuous sound over the whole flight, and the OSD of each video is timed against its own
+  recording (each has the speed of its own). The Input step has the list of the videos (**Add the next video…**,
+  **Move up**, **Remove**) and the files of each; the preview, its slider and the play of ten seconds go through the
+  joins. Videos with a picture of another size are refused, saying which.
+- A video without its `.osd` or its `.srt` is flagged on the Input step, by name, with what is left out of the render
+  (the OSD and the sound need the `.osd`, the SRT data need the `.srt`), when the user asked for it. The steps of the
+  OSD, the SRT data and the sound and the summary of the render name the videos too.
+
+### Fixed
+
+- A late answer of reading the `.osd` or `.srt` files could be taken for the current one after the files had changed
+  (a file taken out while it was being read came back). Each read now has a number, and an answer that is not for the
+  last read is ignored.
+
+### Changed
+
+- A dialog for choosing a video lets you choose several. Several videos dropped together are one flight, in the order
+  of their names; a video dropped by itself replaces what was open, as before.
+- When a video that is drawn on ends one frame short of the length it was asked for, the last picture is held for the
+  missing frame, so the sound and what follows (the next video of a flight) keep their place. Before, the render
+  stopped a frame short.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added
