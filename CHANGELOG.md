@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
 ### Added
 
 - **A flight in several files.** Choose or drop all the videos of a flight together (the goggles split a long
@@ -26,6 +28,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - A late answer of reading the `.osd` or `.srt` files could be taken for the current one after the files had changed
   (a file taken out while it was being read came back). Each read now has a number, and an answer that is not for the
   last read is ignored.
+
+### Security
+
+- Updated `url` to 2.5.9, which fixes RUSTSEC-2026-0592 (a stack overflow in `Url::origin()` on nested `blob:` URLs).
+  The program reaches it only through `opener`, which opens a file or a folder for the user.
 
 ### Changed
 

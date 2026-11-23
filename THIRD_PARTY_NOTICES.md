@@ -2111,8 +2111,8 @@ express Statement of Purpose.
 
 Used by:
 
-- flight-replay-core 0.2.0 (https://github.com/ericogr/flight-replay)
-- flight-replay 0.2.0 (https://github.com/ericogr/flight-replay)
+- flight-replay-core 0.3.0 (https://github.com/ericogr/flight-replay)
+- flight-replay 0.3.0 (https://github.com/ericogr/flight-replay)
 
 ```text
 GNU GENERAL PUBLIC LICENSE
